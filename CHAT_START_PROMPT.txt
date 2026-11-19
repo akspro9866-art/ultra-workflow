@@ -1,6 +1,6 @@
 Attached/available: reference video. Ultra is zero-install, offline, zero-API. No npm install, no AI APIs, no internet.
 
-1. Primary: `git clone <GITHUB_REPO_URL> ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Fallback (no GitHub): unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`. Then read SKILL.md and follow it exactly.
+1. Primary: `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Fallback (no GitHub): unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`. Then read SKILL.md and follow it exactly.
 2. `probe <my-reference.mp4>` — inspect probe.json (cuts, per-scene palettes, luminance/contrast, audio-envelope beats) and every contact sheet + probe frame natively with your vision.
 3. Write workspace/DESIGN.md (measured palette/type/texture), Motion.md, ultra.json. Use primitives (reveal/camera/clipReveal/svgDraw/motionBlurSamples). For exotic shots author workspace/scenes/<name>.html with window.ultraRender(frame,fps,t,progress,audio) + window.UltraEase via "customHtmlFile". Vector scenes: engine "revideo" + enginePayload.sceneType vectors/chart/counter/code. Then `validate-spec`.
 4. `asset-plan` → generate EVERY listed asset natively to its targetPath → `validate-assets`.

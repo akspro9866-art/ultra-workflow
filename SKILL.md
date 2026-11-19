@@ -9,7 +9,7 @@ internet, no CDN, no API keys. Work through the rules below **in order**.
 Primary — clone the GitHub repo (the prebuilt bundle is tracked):
 
 ```bash
-git clone <GITHUB_REPO_URL> ultra-workflow
+git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow
 node ultra-workflow/dist/ultra.mjs doctor --json
 ```
 
