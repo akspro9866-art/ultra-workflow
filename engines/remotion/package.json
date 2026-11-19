@@ -1,0 +1,14 @@
+{
+  "name": "ultra-remotion-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated Remotion workspace for Ultra Workflow. Install with `npm run setup:engines`.",
+  "dependencies": {
+    "@remotion/bundler": "^4.0.240",
+    "@remotion/renderer": "^4.0.240",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.240"
+  }
+}

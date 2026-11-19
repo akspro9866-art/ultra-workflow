@@ -1,0 +1,126 @@
+# SPEC.md — Ultra Workflow v1.1 system contract
+
+Ultra Workflow (`ultra`) is a **100% offline, zero-API, zero-install** CLI +
+deterministic multi-engine video compiler for agent sandboxes (Google Gemini /
+Meta Muse cloud VMs or any local shell). The chat agent is the multimodal brain;
+Ultra is the engineering engine.
+
+## 1. Zero-API / zero-install rule
+
+- No AI SDKs, no API keys, no outbound AI calls.
+- `dist/ultra-workflow-cloud.zip` runs with **no `npm install` and no internet**:
+  `unzip -q ultra-workflow-cloud.zip -d ultra && node ultra/ultra.mjs doctor`.
+- Zero-install contents (< 3 MB hard limit, ~262 KiB actual):
+  `ultra.mjs` (single esbuild bundle: zod + commander + ws + all internals),
+  `ultra` / `ultra.cmd` launchers, `package.json` (root anchor), `assets/vendor/`
+  (offline `three.module.min.js` + `ultra-motion.js` easing runtime),
+  `engines/blender/render_scene.py`, `SKILL.md`, `CHAT_START_PROMPT.txt`,
+  `SPEC.md`, `README.md`. No Playwright binaries, no `node_modules` are bundled.
+
+## 2. Browser layer
+
+- `core/cdp-browser.ts` — native Chrome DevTools Protocol driver over `ws`:
+  auto-discovers chromium/chromium-browser/google-chrome/google-chrome-stable/
+  msedge, macOS app paths, Playwright caches (`~/.cache/ms-playwright`,
+  `%LOCALAPPDATA%\ms-playwright`) and Puppeteer caches, plus `ULTRA_BROWSER_PATH`.
+- Cloud-container-safe flags: `--headless=new --no-sandbox
+  --disable-setuid-sandbox --disable-dev-shm-usage --use-gl=angle
+  --use-angle=swiftshader --enable-webgl --hide-scrollbars --mute-audio
+  --remote-debugging-port=0` (+ swiftshader/unsafe-webgl and file access).
+- Deterministic page loading, `Runtime.evaluate`, viewport sizing
+  (`Emulation.setDeviceMetricsOverride`), transparent background
+  (`Emulation.setDefaultBackgroundColorOverride`), lossless PNG
+  `Page.captureScreenshot` at exact frame steps.
+- `core/browser.ts` prefers CDP; Playwright is only used when
+  `ULTRA_BROWSER_DRIVER=playwright` (optional, never bundled).
+
+## 3. Agent ↔ CLI handoff
+
+| Rule | Command | Contract |
+|------|---------|----------|
+| 1 ANALYZE | `ultra probe <ref>` | `workspace/probe.json`: exact fps/resolution/duration, cuts, onsets, **per-scene top-5 palettes + avgLuminance + contrast** (FFmpeg rawvideo sampling), timestamped keyframes, 3×3 contact sheets with **cut numbers + palette swatches**; `workspace/audio-envelope.json`: RMS 0..1 per video frame at target fps + `beatsSec`. |
+| 2 ASSETS | `ultra asset-plan` → agent → `ultra validate-assets` | Only missing/invalid assets, exact prompts/sizes/alpha rules, SHA-1 manifest, SVG XML / PNG alpha / audio-video / scene-graph validity. |
+| 3/4 BUILD | `ultra build` | Frame-stepped deterministic rendering (`__ULTRA_SEEK`), anti-slop primitives, engine routing, SHA-1 cache; `build/draft.mp4`. |
+| 5 VERIFY | `ultra verify <ref>` | Quantitative audit + DOM lint + labeled pairs + SSIM `sceneSimilarity[]` + 100-pt rubric. |
+| 6 RENDER | `ultra render` | Gated final MP4 (exact CFR, LUT grade, ducked audio, −14 LUFS). |
+
+## 4. Scene contract (`workspace/ultra.json`, strict Zod)
+
+`meta`, `designTokens` (palette/fonts/grain/antiSlopRules ≥1), `colorGrade`,
+`audio` (targetLufs, music/voice, duckingDb, sfxCues), `assets[]`, `scenes[]`.
+
+Scene fields: `id, name, startSec, endSec, engine, overlayOfSceneId?, alpha?,
+transitionIn{type,durationSec}, background, layers[], keyframes[], textElements[],
+effects[], enginePayload, motionBlurSamples (1..4, default 1),
+camera{perspectivePx, keyframes[rotateX/Y/Z, zoom, panX/Y]},
+clipReveal{none|wipe|iris|diagonal, durationSec, delaySec},
+customHtmlFile? | customCode{html,css,js}?`.
+
+- Timeline scenes tile `[0, durationSec]` (±0.06s); alpha scenes must declare
+  `overlayOfSceneId` and no transitions; custom HTML requires engine
+  `hyperframes`; `customHtmlFile` must be a relative path inside `workspace/scenes/`.
+- Text reveals: `textElements[].reveal{mode none|chars|words|lines, staggerSec,
+  durationSec, delaySec, from up|down|left|right, distancePx, easing, mask}`.
+- SVG layers may set `svgDraw` (stroke-dashoffset interpolation via
+  `pathLength="1"`), `drawDelaySec`, `drawDurationSec`; shape layers may set
+  `glass`; effects: grain, halftone, vignette, blur, glow, chromatic.
+
+**Custom scene escape hatch**: `workspace/scenes/*.html` (full document or
+fragment) or inline `customCode`. Ultra injects a deterministic virtual clock
+(`window.__ULTRA_SEEK(frame, fps)`), `window.__ULTRA_AUDIO` (the envelope),
+`window.UltraEase` (offline easing/spring curves) and calls
+`window.ultraRender(frame, fps, timeSec, progress, audio)` when present. The
+same DOM/contrast/clipping/blank linter runs; add `data-audit="text"` markers to
+opt text into palette/contrast checks.
+
+## 5. Engines
+
+| Engine | Worker | Notes |
+|--------|--------|-------|
+| hyperframes | Chromium (CDP) | Deterministic HTML/CSS runtime + SVG/Canvas/custom scenes; 2.5D camera rig, split-text reveals, clip reveals, glass/halftone; optional subframe motion blur (`motionBlurSamples` → N sub-seeks, PNG sequences blended via FFmpeg `blend=average`). Lossless PNGs → exact CFR. |
+| revideo (cloud-native) | Chromium choreography | Built-in deterministic vector choreography for `enginePayload.sceneType` ∈ vectors/diagram/sequence/chart/counter/code (polylines, arrows/nodes, bars, counters, code highlights). Native `@revideo/*` rendering stays opt-in (`ULTRA_REVIDEO_NATIVE=1`) because upstream packaging pulls undeclared peers; telemetry disabled; time-bounded. |
+| remotion | Isolated workspace (optional) | Spring type/UI/chart/grade compositions when installed (`npm run setup:engines`); otherwise HyperFrames fallback. |
+| blender | `blender --background` + `render_scene.py` | Blender 3.6–4.5 hardened: Principled BSDF input renames (Specular IOR Level, Subsurface Weight, Emission Color, Coat Weight, Transmission Weight), dynamic EEVEE enum (BLENDER_EEVEE_NEXT / BLENDER_EEVEE), AgX→Filmic→Standard color management, GPU→CPU→EEVEE fallback, bpy.data/bmesh only, RGBA transparent output. Without Blender, the same `scene_graph.json` renders via Three.js WebGL (offline vendor copy) with alpha. |
+
+Unavailable engines fall back to HyperFrames unless `--strict-engine`.
+
+## 6. Stitcher
+
+Per-run concatenation + `xfade` joins, alpha `overlay` compositing, grade chain
+(`lut3d` → `eq` → `colorbalance` → `vignette` → `scale=out_range=tv` →
+`format=yuv420p`), audio (`adelay` SFX, `sidechaincompress` ducking, `alimiter`,
+`loudnorm −14 LUFS / −1.5 dBTP`), exact-CFR `yuv420p` H.264 + AAC 192k.
+
+## 7. Verification report (`build/verify-report.json`)
+
+- `quantitative`: duration Δ/ok, fps/CFR, `duplicateRatio`, **`staticHoldFrames`
+  / `staticHoldRatio`** (informational), **`stutterEvents` / `stutterFrames` /
+  `jitterRatio`** (strict gate: `stutterEvents` must be 0), black detections,
+  loudness, pass.
+- Jitter measurement: `format=gray,tblend=all_mode=difference,signalstats,
+  metadata=print` YAVG per frame pair; duplicates = YAVG ≤ 0.12 (above H.264 QP
+  noise); runs ≥ fps·0.25 = static holds; isolated 2–3 duplicate frames amid
+  motion = stutter; single-frame micro-holds (easing apexes) are not defects;
+  single-frame noise gaps (< 0.25) are bridged.
+- `lint`: per-scene defects (clip/overlap/contrast/brokenMedia/blankFrame/palette/layout).
+- `visualPairs`: labeled `build/audit-frames/pair_XX.png` + per-pair SSIM.
+- `sceneSimilarity[]`: `{index, timestampSec, sceneId, ssim, mae}` per matched pair.
+- `rubric`: 5 categories × 4 items × 5 pts; agent fills checks/scores (≥90).
+
+## 8. Cache
+
+`.ultra-cache/renders/<sha1>.{mp4,mov}` keyed over scene JSON + tokens + grade +
+fps/size + render duration + referenced asset bytes + resolved engine; patches
+invalidate only targeted scenes. Render-time fallbacks are stored under the
+HyperFrames key so a later working native engine is never masked.
+
+## 9. Packaging & proof
+
+`npm run pack:cloud` → tsc + esbuild bundle + vendored three + launchers →
+`dist/ultra-workflow-cloud.zip` (hard fail > 3 MB, warn > 2.5 MB).
+`tests/phase7.cloud-bundle.test.ts` packs, extracts with CRC verification into a
+fresh `os.tmpdir()` folder with **zero node_modules**, runs `doctor.json`, a
+real multi-scene build (bespoke custom HTML + vector choreography + Three.js
+alpha overlay + HyperFrames outro), `verify` (asserting `stutterEvents === 0`),
+and `render` to a playable `yuv420p` CFR MP4. `tests/test_blender_script.py`
+(mock-bpy) runs under `npm test` together with the 7 TypeScript suites.

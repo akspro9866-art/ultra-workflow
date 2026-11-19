@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["bin/**/*.ts", "core/**/*.ts", "engines/types.ts", "engines/hyperframes/**/*.ts", "engines/blender/**/*.ts", "engines/remotion/index.ts", "engines/revideo/index.ts", "verifier/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist", "engines/remotion/Root.tsx", "engines/remotion/SceneRenderer.tsx", "engines/revideo/project.ts", "engines/revideo/scene.tsx", "engines/remotion/node_modules", "engines/revideo/node_modules"]
+}

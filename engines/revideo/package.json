@@ -1,0 +1,19 @@
+{
+  "name": "ultra-revideo-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated Revideo workspace for Ultra Workflow. Install with `npm run setup:engines`.",
+  "dependencies": {
+    "@revideo/2d": "^0.10.0",
+    "@revideo/core": "^0.10.0",
+    "@revideo/renderer": "^0.10.0",
+    "@revideo/ui": "^0.10.4",
+    "@revideo/vite-plugin": "^0.10.4"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "@revideo/telemetry@0.10.4": true,
+    "puppeteer@23.11.1": true
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+tmp/
+.ultra-cache/
+build/
+dist/
+dist/*.mp4
+*.log
+workspace/probe-frames/
+workspace/contact-sheet-*.png
+workspace/probe.json
+workspace/assets-todo.json
+workspace/assets.manifest.json
+workspace/audio-envelope.json

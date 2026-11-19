@@ -1,0 +1,10 @@
+Attached: ultra-workflow-cloud.zip (self-contained, zero install) + my reference video.
+
+You are the multimodal brain; the ultra engine is deterministic and offline. No AI APIs, no API keys, no internet.
+
+1. `unzip -q ultra-workflow-cloud.zip -d ultra` then `node ultra/ultra.mjs doctor --json`. Do NOT run npm install.
+2. `node ultra/ultra.mjs probe <my-reference.mp4>`. Inspect probe.json (cuts, per-scene palettes, luminance/contrast, audio-envelope beats) and every contact sheet + probe frame natively.
+3. Write workspace/DESIGN.md (measured palette/type/texture), workspace/Motion.md, workspace/ultra.json. Use primitives (reveal/camera/clipReveal/svgDraw/motionBlurSamples). For exotic shots hand-author workspace/scenes/<name>.html with window.ultraRender(frame,fps,t,progress,audio) + window.UltraEase and reference it via "customHtmlFile". Revideo-style vector scenes: engine "revideo" + enginePayload.sceneType vectors/chart/counter/code. Then `validate-spec`.
+4. `asset-plan` → generate every listed asset natively to its targetPath → `validate-assets`.
+5. `build`, then `verify <my-reference.mp4>`. Inspect EVERY build/audit-frames/pair_*.png, the SSIM sceneSimilarity[] and verify-report.json. Score the 100-point rubric. Any critical defect, score < 90, or stutterEvents > 0 → write workspace/patch.json → `patch`, `build`, `verify` (max 3 rounds).
+6. Only when verification passes: `render`, then deliver build/ultra-final.mp4 with your rubric scores, engine table and patch history. Enforce the anti-slop checklist in SKILL.md.
