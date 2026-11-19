@@ -54,6 +54,47 @@ New v3 CLI: `style-probe`, `style-list`, `style-validate`, `style-export`,
 `sourceClip: { path, inSec, outSec, muteSourceAudio, jCutLeadSec, lCutTrailSec,
 scale, panX, panY, cropMode }` for editing the user's own footage.
 
+## Three cloud chat platforms & render tiers (v4)
+
+Works in **Google Gemini**, **Meta Muse**, and **ChatGPT** containers — zero
+install, zero external AI APIs, no API keys.
+
+ChatGPT has two load paths:
+
+```bash
+# a) direct raw download inside the container
+curl -L -o ultra-workflow-cloud.zip \
+  https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip
+unzip -q ultra-workflow-cloud.zip -d ultra
+node ultra/ultra.mjs doctor --json --host chatgpt
+# b) or upload ultra-workflow-cloud.zip into the chat and unzip it the same way
+```
+Ready-to-paste ChatGPT prompts: `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.txt`,
+`prompts/CHATGPT_PROCESS2A_CLONE_REFERENCE.txt`,
+`prompts/CHATGPT_PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt`.
+
+`doctor` reports a `renderTier`:
+
+| Tier | When | Rendering |
+|---|---|---|
+| `full-cdp` | Chromium/Chrome/Edge available | HyperFrames + Three.js + optional Remotion/Revideo + CDP screenshots (phases 1–8 unchanged) |
+| `browserless-py` | no browser (or `ULTRA_NO_BROWSER=1`) with Python 3 + Pillow + FFmpeg — standard ChatGPT container | `engines/py-canvas` renders deterministically with Pillow (easing, reveals, captions, sourceClip, chart/counter vectors, image Ken Burns, seeded grain, blender wireframe fallback) and pipes raw frames into FFmpeg; DOM lint becomes a Python layout linter; audit pairs compose via FFmpeg (no Chromium at all) |
+| `ffmpeg-only` | neither browser nor Pillow | reduced py-canvas FFmpeg filtergraph fallback for text/background scenes |
+
+In browserless ChatGPT containers use native **Image Generation** for stills and
+B-roll keyframes (`asset-plan --host chatgpt` flags them
+`native-image-plus-2.5d-rig`) and the built-in synthesizer for sound:
+
+```bash
+node ultra/ultra.mjs synth-audio --preset whoosh --out workspace/assets/whoosh.wav
+node ultra/ultra.mjs synth-audio --preset beat-pulse --out workspace/assets/bed.wav --duration 4 --bpm 120 --mood tech
+node ultra/ultra.mjs synth-audio --from-assets          # every pending sfx/music
+```
+Presets — SFX: `whoosh`, `whoosh-fast`, `sub-hit`, `riser`, `pop`, `ui-click`,
+`glitch-zap`, `shutter`, `swoosh-reverse`, `chime`; music: `beat-pulse`,
+`ambient-tech`, `minimal-tension`. Output is 48 kHz 16-bit stereo WAV with
+soft-clipped, dither-added broadcast levels.
+
 ## Scene authoring: primitives + escape hatch
 
 `ultra.json` primitives cover structured motion: keyframes/easing, split-text
@@ -102,6 +143,7 @@ npm run setup:engines
 | phase6 | verify → break → patch → rebuild → verify → render (strict stutter gate) |
 | phase7 | **isolated zero-install cloud run** from the packed zip (custom HTML + vector choreography + 3D alpha + verify + render) |
 | phase8 | **dual-process style system**: style-probe → pack validate/export/import → raw-probe silence edit plan → sourceClip build → `verify --style` compliance + style-match.png → render |
+| phase9 | **ChatGPT container simulation**: zero-install zip + `ULTRA_NO_BROWSER=1` → `renderTier: browserless-py` → synth-audio WAVs (ffprobe 48k/2ch) → py-canvas multi-scene build (sourceClip + kinetic title + revideo chart + alpha wireframe) → verify (stutterEvents 0, ffmpeg audit pairs) → render |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs
@@ -114,6 +156,7 @@ npm run setup:engines
 (quantitative flags + SSIM sceneSimilarity + style compliance + 100-pt rubric),
 `build/ultra-final.mp4`. Style workflow: `workspace/style-probe/aggregate.json` +
 `batch-overview.png` + `candidates/`, `workspace/raw-probe/raw-edit-plan.json`,
-`styles/<slug>/` packs, `build/<slug>-style-pack.zip`.
+`styles/<slug>/` packs, `build/<slug>-style-pack.zip`. Synthesizer WAVs
+(`synth-audio`) go wherever `--out` points (often `workspace/assets/`).
 
 See `SPEC.md` for the full contract.

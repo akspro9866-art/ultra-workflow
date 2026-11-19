@@ -1,0 +1,10 @@
+CHATGPT · PROCESS 2B — EDIT MY RAW VIDEO IN AN INSTALLED STYLE
+
+Repo: https://github.com/akspro9866-art/ultra-workflow · Zero-install/offline/zero-API: `curl -L -o ultra-workflow-cloud.zip https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip` (or upload the zip), `unzip -q ultra-workflow-cloud.zip -d ultra`, `node ultra/ultra.mjs doctor --json --host chatgpt`.
+
+1. `node ultra/ultra.mjs style-list` → pick `--style <slug>` (packs ship in ultra/styles/; import new ones in Qoder with prompts/QODER_IMPORT_STYLE_TO_REPO.txt).
+2. Upload my_video.mp4; run `node ultra/ultra.mjs raw-probe my_video.mp4 --style <slug> --out workspace/raw-probe`. Inspect raw-edit-plan.json: silences/dead air, keepSegments, hookEnd, targetBodyAslSec, maxStaticHoldSec, punchInPoints, brollCutaways, captionWindows.
+3. Author ultra.json from the plan: sourceClip scenes `{path,inSec,outSec,jCutLeadSec,lCutTrailSec,cropMode}`; punch-in via camera keyframes; styled captions (style palette/casing/word highlight); motif/B-roll overlays per plan; only allowed transitions (never bannedTypes); style colorGrade + grain. `validate-spec`.
+4. `asset-plan --host chatgpt` for any overlays; use Image Generation for stills; `synth-audio` for any extra SFX/music; `validate-assets`.
+5. `build` → `verify --style <slug>`: require stutterEvents 0, ±1.5 dB style LUFS, style compliance all OK, and inspect build/audit-frames/style-match.png (STYLE EXEMPLAR vs YOUR EDIT). Grade 0–100; patch via workspace/patch.json + `patch`/`build`/`verify` (≤3 rounds) until ≥90.
+6. `render`; deliver build/ultra-final.mp4 + compliance block + match score + patch history.

@@ -3,6 +3,7 @@ import path from "node:path";
 import { PatchSpec, SceneSpec, type SceneSpecT } from "../core/schema.js";
 import { loadProjectFile, validateProjectSemantics } from "../core/project.js";
 import { cacheDir, cacheKeyForScene, chooseEngine } from "../core/orchestrator.js";
+import { detectRenderTier } from "../core/env.js";
 import { pathExists, readJson, writeJsonAtomic } from "../core/util.js";
 
 export interface PatchApplyResult {
@@ -29,6 +30,7 @@ export async function applyPatch(
   const patch = PatchSpec.parse(await readJson(patchFile));
   const warnings: string[] = [];
   const applied: { sceneId: string; invalidated: string[] }[] = [];
+  const tierInfo = await detectRenderTier();
 
   for (const entry of patch.patches) {
     const index = project.scenes.findIndex((s) => s.id === entry.sceneId);
@@ -38,12 +40,14 @@ export async function applyPatch(
       throw new Error(`patch for "${scene.id}" cannot rename the scene id`);
     }
 
-    let resolvedEngine = "hyperframes";
-    try {
-      const choice = await chooseEngine(scene, false);
-      resolvedEngine = choice.fallback ? "hyperframes" : choice.engine.key;
-    } catch (err) {
-      warnings.push(`could not resolve engine for cache invalidation: ${(err as Error).message}`);
+    let resolvedEngine = tierInfo.tier !== "full-cdp" ? "py-canvas" : "hyperframes";
+    if (tierInfo.tier === "full-cdp") {
+      try {
+        const choice = await chooseEngine(scene, false);
+        resolvedEngine = choice.fallback ? "hyperframes" : choice.engine.key;
+      } catch (err) {
+        warnings.push(`could not resolve engine for cache invalidation: ${(err as Error).message}`);
+      }
     }
     const oldKey = await cacheKeyForScene(project, scene, workspace, resolvedEngine);
     const invalidated: string[] = [];

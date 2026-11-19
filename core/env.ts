@@ -105,29 +105,182 @@ export async function detectOptionalEngine(engine: "remotion" | "revideo"): Prom
   return pathExists(marker);
 }
 
-export async function detectEnvironment(): Promise<DoctorReportT> {
+export interface PythonCommand {
+  bin: string;
+  prefix: string[];
+}
+
+let pythonCommandCache: PythonCommand | null | undefined;
+
+export async function resolvePythonCommand(): Promise<PythonCommand | null> {
+  if (pythonCommandCache !== undefined) return pythonCommandCache;
+  const candidates: PythonCommand[] =
+    process.platform === "win32"
+      ? [{ bin: "python", prefix: [] }, { bin: "py", prefix: ["-3"] }, { bin: "python3", prefix: [] }]
+      : [{ bin: "python3", prefix: [] }, { bin: "python", prefix: [] }];
+  for (const candidate of candidates) {
+    try {
+      const result = await run(candidate.bin, [...candidate.prefix, "--version"], { timeoutMs: 8000 });
+      if (result.code === 0) {
+        pythonCommandCache = candidate;
+        return candidate;
+      }
+    } catch {
+      // try next
+    }
+  }
+  pythonCommandCache = null;
+  return null;
+}
+
+export async function detectPythonModules(): Promise<{ pil: boolean; numpy: boolean; cairosvg: boolean }> {
+  const python = await resolvePythonCommand();
+  if (!python) return { pil: false, numpy: false, cairosvg: false };
+  const script = [
+    "import json",
+    "out={}",
+    "for name in ['PIL','numpy','cairosvg']:",
+    "    try:",
+    "        __import__(name)",
+    "        out[name]=True",
+    "    except Exception:",
+    "        out[name]=False",
+    "print(json.dumps(out))",
+  ].join("\n");
+  try {
+    const result = await run(python.bin, [...python.prefix, "-c", script], { timeoutMs: 20_000 });
+    if (result.code === 0) {
+      const parsed = JSON.parse(result.stdout.trim().split(/\r?\n/).pop() ?? "{}") as Record<string, boolean>;
+      return { pil: Boolean(parsed["PIL"]), numpy: Boolean(parsed["numpy"]), cairosvg: Boolean(parsed["cairosvg"]) };
+    }
+  } catch {
+    // treat as missing
+  }
+  return { pil: false, numpy: false, cairosvg: false };
+}
+
+function fontDirectoriesFor(workspaceDir: string): string[] {
+  const home = os.homedir();
+  const dirs: string[] = [path.join(workspaceDir, "assets", "fonts"), path.join(process.cwd(), "workspace", "assets", "fonts")];
+  if (process.platform === "win32") {
+    dirs.push("C:\\Windows\\Fonts");
+    if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "Microsoft", "Windows", "Fonts"));
+  } else if (process.platform === "darwin") {
+    dirs.push("/System/Library/Fonts", "/Library/Fonts", path.join(home, "Library", "Fonts"));
+  } else {
+    dirs.push("/usr/share/fonts", "/usr/local/share/fonts", path.join(home, ".fonts"), path.join(home, ".local", "share", "fonts"));
+  }
+  return [...new Set(dirs)];
+}
+
+async function walkFonts(dir: string, depth: number, out: string[]): Promise<void> {
+  if (depth < 0 || out.length > 500) return;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) await walkFonts(full, depth - 1, out);
+    else if (/\.(ttf|otf)$/i.test(entry.name)) out.push(full);
+  }
+}
+
+export async function discoverFonts(workspaceDir?: string): Promise<{
+  regular: string | null;
+  bold: string | null;
+  mono: string | null;
+  count: number;
+  directories: string[];
+}> {
+  const workspace = workspaceDir ?? path.resolve(process.cwd(), "workspace");
+  const directories = fontDirectoriesFor(workspace);
+  const files: string[] = [];
+  for (const dir of directories) await walkFonts(dir, 4, files);
+  const isItalic = (f: string) => /italic|oblique/i.test(path.basename(f));
+  const isBold = (f: string) => /bold|bd|black|heavy|semibold/i.test(path.basename(f));
+  const isMono = (f: string) => /mono|consol|courier|menlo|code|hack/i.test(path.basename(f));
+  const preferred = (f: string, terms: RegExp) => terms.test(path.basename(f));
+  const pick = (predicate: (f: string) => boolean, preference: RegExp) =>
+    files.find((f) => predicate(f) && preference.test(path.basename(f)) && !isItalic(f)) ??
+    files.find((f) => predicate(f) && !isItalic(f)) ??
+    null;
+  return {
+    regular: pick((f) => !isBold(f) && !isMono(f), /segoeui|arial|inter|roboto|noto.*sans|dejavu.*sans|liberation.*sans/i),
+    bold: pick(isBold, /segoeui.*b|arial.*b|inter.*b|roboto.*b|noto.*sans.*b|dejavu.*sans.*b|liberation.*sans.*b/i),
+    mono: pick(isMono, /consola|dejavu.*mono|liberation.*mono|menlo|noto.*mono/i),
+    count: files.length,
+    directories,
+  };
+}
+
+export type RenderTier = "full-cdp" | "browserless-py" | "ffmpeg-only";
+
+export async function detectRenderTier(): Promise<{
+  tier: RenderTier;
+  browser: { available: boolean; kind: string | null; executablePath: string | null };
+  pythonModules: { pil: boolean; numpy: boolean; cairosvg: boolean };
+  python: boolean;
+  ffmpeg: boolean;
+}> {
+  const forcedNoBrowser = process.env.ULTRA_NO_BROWSER === "1";
+  const browser = forcedNoBrowser
+    ? { available: false, kind: null, executablePath: null }
+    : await getBrowserInfo().catch(() => ({ available: false, kind: null, executablePath: null }));
+  const ffmpeg = Boolean(await probeVersion("ffmpeg", ["-version"], 8000));
+  const python = Boolean(await resolvePythonCommand());
+  const pythonModules = await detectPythonModules();
+  const tier: RenderTier = browser.available
+    ? "full-cdp"
+    : ffmpeg && python && pythonModules.pil
+      ? "browserless-py"
+      : "ffmpeg-only";
+  return { tier, browser, pythonModules, python, ffmpeg };
+}
+
+export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chatgpt" = "auto"): Promise<DoctorReportT> {
   const warnings: string[] = [];
   const ffmpegVersionLine = await probeVersion("ffmpeg", ["-version"], 8000);
   const ffprobeVersionLine = await probeVersion("ffprobe", ["-version"], 8000);
   const python = await detectPython();
   const blender = await detectBlender();
-  const browserInfo = await getBrowserInfo().catch(() => null);
-  const [remotionInstalled, revideoInstalled, gpu] = await Promise.all([
+  const [remotionInstalled, revideoInstalled, gpu, tierInfo, fonts] = await Promise.all([
     detectOptionalEngine("remotion"),
     detectOptionalEngine("revideo"),
     detectGpu(),
+    detectRenderTier(),
+    discoverFonts(),
   ]);
+  const browserInfo = tierInfo.browser;
 
   if (!ffmpegVersionLine) warnings.push("FFmpeg is missing; install FFmpeg and ensure it is on PATH.");
   if (!ffprobeVersionLine) warnings.push("ffprobe is missing; install FFmpeg (full build) and ensure it is on PATH.");
-  if (!python) warnings.push("Python 3.11+ is not available; Blender-native rendering will be unavailable.");
-  if (!browserInfo) warnings.push("No Chromium-compatible browser found; HyperFrames rendering requires Chrome/Edge/Chromium.");
-  if (!blender) warnings.push("Blender not found; 3D scenes will use the deterministic Three.js WebGL fallback.");
-  if (!remotionInstalled) warnings.push("Remotion workspace not installed; remotion scenes will fall back to HyperFrames. Run `npm run setup:engines` to enable.");
-  if (!revideoInstalled) warnings.push("Revideo workspace not installed; revideo scenes will fall back to HyperFrames. Run `npm run setup:engines` to enable.");
+  if (!python) warnings.push("Python 3.11+ is not available; Blender-native rendering and py-canvas are unavailable.");
+  if (!browserInfo.available) {
+    warnings.push(
+      tierInfo.tier === "browserless-py"
+        ? "No browser: renderTier=browserless-py (Pillow renderer + synth-audio; install Chromium for full-cdp)."
+        : "No browser and no Pillow: renderTier=ffmpeg-only (reduced py-canvas rendering).",
+    );
+  }
+  if (!blender) warnings.push("Blender not found; 3D scenes use Three.js (full-cdp) or the py-canvas wireframe fallback.");
+  if (!remotionInstalled) warnings.push("Remotion workspace not installed; remotion scenes fall back automatically.");
+  if (!revideoInstalled) warnings.push("Revideo workspace not installed; revideo scenes use the built-in choreography runtime.");
+  if (host === "chatgpt") {
+    warnings.push(
+      tierInfo.tier === "full-cdp"
+        ? "Host=chatgpt · full-cdp available: HyperFrames/Three.js pipeline will run unchanged."
+        : "Host=chatgpt · browserless: py-canvas takes over rendering; use ChatGPT Image Generation for stills/B-roll keyframes and `ultra synth-audio` for SFX/music.",
+    );
+    if (!tierInfo.pythonModules.pil) warnings.push("Host=chatgpt · Pillow not detected: py-canvas will use its FFmpeg filtergraph fallback.");
+  }
 
   return {
-    ok: Boolean(ffmpegVersionLine && ffprobeVersionLine && browserInfo),
+    ok: Boolean(ffmpegVersionLine && ffprobeVersionLine && tierInfo.tier !== "ffmpeg-only"),
+    renderTier: tierInfo.tier,
+    host,
     os: {
       platform: process.platform,
       release: os.release(),
@@ -136,13 +289,11 @@ export async function detectEnvironment(): Promise<DoctorReportT> {
     },
     node: process.version,
     python,
+    pythonModules: tierInfo.pythonModules,
+    fonts,
     ffmpeg: { available: Boolean(ffmpegVersionLine), version: ffmpegVersionLine },
     ffprobe: { available: Boolean(ffprobeVersionLine), version: ffprobeVersionLine },
-    browser: {
-      available: Boolean(browserInfo),
-      kind: browserInfo?.kind ?? null,
-      executablePath: browserInfo?.executablePath ?? null,
-    },
+    browser: browserInfo,
     remotion: { installed: remotionInstalled },
     revideo: { installed: revideoInstalled },
     blender: { available: Boolean(blender), version: blender },

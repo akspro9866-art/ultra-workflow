@@ -19,6 +19,14 @@ import { runStyleVerify } from "../verifier/style-verify.js";
 import { styleProbe } from "../core/style-probe.js";
 import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
 import { rawProbe } from "../core/raw-probe.js";
+import {
+  SYNTH_PRESETS,
+  defaultSynthDuration,
+  isSynthPreset,
+  synthFromAssets,
+  synthesizeToWav,
+  type SynthMood,
+} from "../core/synth-audio.js";
 import { shutdownBrowser } from "../core/browser.js";
 
 class CliError extends Error {}
@@ -93,25 +101,29 @@ async function loadValidatedProject(workspace: string) {
 
 program
   .command("doctor")
-  .description("Detect OS, GPU, FFmpeg, browser, Remotion, Revideo, Blender")
+  .description("Detect OS, GPU, FFmpeg, browser tier, Python modules, fonts, engines")
   .option("--json", "machine-readable JSON only")
-  .action(async (options: { json?: boolean }) => {
-    const report = await detectEnvironment();
+  .option("--host <host>", "auto|gemini|muse|chatgpt", "auto")
+  .action(async (options: { json?: boolean; host: string }) => {
+    const host = options.host === "gemini" || options.host === "muse" || options.host === "chatgpt" ? options.host : "auto";
+    const report = await detectEnvironment(host);
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));
     } else {
       console.log(`ultra doctor`);
-      console.log(`  os        ${report.os.platform} ${report.os.arch} · ${report.os.cpus} cpus`);
-      console.log(`  node      ${report.node}`);
-      console.log(`  python    ${report.python ?? "not found"}`);
-      console.log(`  ffmpeg    ${report.ffmpeg.version ?? "not found"}`);
-      console.log(`  ffprobe   ${report.ffprobe.version ?? "not found"}`);
-      console.log(`  browser   ${report.browser.kind ?? "not found"}${report.browser.executablePath ? ` (${report.browser.executablePath})` : ""}`);
-      console.log(`  remotion  ${report.remotion.installed ? "installed" : "optional — not installed"}`);
-      console.log(`  revideo   ${report.revideo.installed ? "installed" : "optional — not installed"}`);
-      console.log(`  blender   ${report.blender.version ?? "not found (Three.js fallback active)"}`);
-      console.log(`  gpu       ${report.gpu.name ?? "not detected"}`);
-      for (const warning of report.warnings) console.log(`  warning   ${warning}`);
+      console.log(`  renderTier  ${report.renderTier}${report.host ? ` · host=${report.host}` : ""}`);
+      console.log(`  os          ${report.os.platform} ${report.os.arch} · ${report.os.cpus} cpus`);
+      console.log(`  node        ${report.node}`);
+      console.log(`  python      ${report.python ?? "not found"} · PIL ${report.pythonModules.pil ? "yes" : "no"} · numpy ${report.pythonModules.numpy ? "yes" : "no"} · cairosvg ${report.pythonModules.cairosvg ? "yes" : "no"}`);
+      console.log(`  fonts       ${report.fonts.count} files · regular ${report.fonts.regular ?? "—"} · bold ${report.fonts.bold ?? "—"} · mono ${report.fonts.mono ?? "—"}`);
+      console.log(`  ffmpeg      ${report.ffmpeg.version ?? "not found"}`);
+      console.log(`  ffprobe     ${report.ffprobe.version ?? "not found"}`);
+      console.log(`  browser     ${report.browser.kind ?? "not found"}${report.browser.executablePath ? ` (${report.browser.executablePath})` : ""}`);
+      console.log(`  remotion    ${report.remotion.installed ? "installed" : "optional — not installed"}`);
+      console.log(`  revideo     ${report.revideo.installed ? "installed" : "optional — not installed"}`);
+      console.log(`  blender     ${report.blender.version ?? "not found (py-canvas/Three.js fallback)"}`);
+      console.log(`  gpu         ${report.gpu.name ?? "not detected"}`);
+      for (const warning of report.warnings) console.log(`  warning     ${warning}`);
     }
     if (!report.ok) process.exitCode = 1;
   });
@@ -173,10 +185,12 @@ program
 program
   .command("asset-plan")
   .description("Rule 2: write workspace/assets-todo.json listing only missing/invalid assets")
-  .action(async () => {
+  .option("--host <host>", "auto|gemini|muse|chatgpt (adapts instructions to native capabilities)", "auto")
+  .action(async (options: { host: string }) => {
     const { workspace } = paths();
+    const host = options.host === "gemini" || options.host === "muse" || options.host === "chatgpt" ? options.host : "auto";
     const project = await loadValidatedProject(workspace);
-    const result = await validateAssets(project, workspace);
+    const result = await validateAssets(project, workspace, { host });
     const todoFile = path.join(workspace, "assets-todo.json");
     console.log(`asset-plan → ${todoFile}`);
     if (result.ok) {
@@ -489,6 +503,69 @@ program
     }
     console.log(
       `  pacing    hook ends ${result.plan.pacing.hookEndSec}s · body ASL ${result.plan.pacing.targetBodyAslSec}s · max hold ${result.plan.pacing.maxStaticHoldSec}s · punch-ins ${result.plan.pacing.punchInPoints.length} · B-roll ${result.plan.pacing.brollCutaways.length}`,
+    );
+  });
+
+program
+  .command("synth-audio")
+  .description("Offline 48kHz stereo WAV synthesizer (SFX + music presets, zero external APIs)")
+  .option("--preset <name>", "preset name (see preset list)")
+  .option("--out <path>", "output .wav path")
+  .option("--duration <sec>", "duration seconds")
+  .option("--bpm <num>", "music tempo", "120")
+  .option("--mood <mood>", "dark|upbeat|tech|minimal", "tech")
+  .option("--spec <jsonPath>", "JSON overrides {preset,durationSec,bpm,mood}")
+  .option("--from-assets [path]", "generate every pending sfx/music asset from assets-todo.json")
+  .action(async (options: {
+    preset?: string;
+    out?: string;
+    duration?: string;
+    bpm: string;
+    mood: string;
+    spec?: string;
+    fromAssets?: string | boolean;
+  }) => {
+    if (options.fromAssets !== undefined) {
+      const todoPath = typeof options.fromAssets === "string" ? path.resolve(options.fromAssets) : undefined;
+      const result = await synthFromAssets(todoPath);
+      console.log(`synth-audio --from-assets → ${result.generated.length} generated, ${result.skipped.length} skipped`);
+      for (const item of result.generated) {
+        console.log(`  ${item.preset.padEnd(14)} ${item.durationSec}s · ${(item.bytes / 1024).toFixed(1)} KiB · ${item.out}`);
+      }
+      for (const item of result.skipped) console.log(`  skip ${item.id}: ${item.reason}`);
+      return;
+    }
+    let spec: Record<string, unknown> = {};
+    if (options.spec) {
+      try {
+        spec = JSON.parse(await fs.readFile(path.resolve(options.spec), "utf8")) as Record<string, unknown>;
+      } catch (err) {
+        throw new CliError(`cannot read --spec ${options.spec}: ${(err as Error).message}`);
+      }
+    }
+    const preset = options.preset ?? (typeof spec["preset"] === "string" ? spec["preset"] : undefined);
+    const out = options.out ?? (typeof spec["out"] === "string" ? spec["out"] : undefined);
+    if (!preset || !out) {
+      throw new CliError(
+        `synth-audio needs --preset and --out (or --spec). SFX presets: ${SYNTH_PRESETS.sfx.join(", ")} · music: ${SYNTH_PRESETS.music.join(", ")}`,
+      );
+    }
+    if (!isSynthPreset(preset)) {
+      throw new CliError(`unknown preset "${preset}". SFX: ${SYNTH_PRESETS.sfx.join(", ")} · music: ${SYNTH_PRESETS.music.join(", ")}`);
+    }
+    const mood = (["dark", "upbeat", "tech", "minimal"] as SynthMood[]).includes(options.mood as SynthMood)
+      ? (options.mood as SynthMood)
+      : (typeof spec["mood"] === "string" ? (spec["mood"] as SynthMood) : "tech");
+    const durationSec = options.duration !== undefined
+      ? Number(options.duration)
+      : typeof spec["durationSec"] === "number"
+        ? (spec["durationSec"] as number)
+        : defaultSynthDuration(preset);
+    const bpm = Number(options.bpm) || (typeof spec["bpm"] === "number" ? Number(spec["bpm"]) : 120);
+    const result = await synthesizeToWav({ preset, out: path.resolve(out), durationSec, bpm, mood });
+    console.log(`synth-audio → ${result.out}`);
+    console.log(
+      `  preset ${result.preset} · ${result.durationSec}s · 48kHz stereo · ${(result.bytes / 1024).toFixed(1)} KiB · peak ${result.peakDb.toFixed(1)} dBFS · rms ${result.rmsDb.toFixed(1)} dBFS`,
     );
   });
 

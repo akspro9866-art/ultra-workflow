@@ -5,6 +5,9 @@ import type { AssetSpecT, UltraProjectT } from "./schema.js";
 import { AssetManifest, type AssetTodoT } from "./schema.js";
 import { pathExists, resolveInside, round, sha1File, writeJsonAtomic } from "./util.js";
 import { SceneGraph } from "../engines/blender/schema.js";
+import { inferSynthPreset } from "./synth-audio.js";
+
+export type AssetHost = "auto" | "gemini" | "muse" | "chatgpt";
 
 export interface AssetCheckResult {
   id: string;
@@ -181,8 +184,35 @@ export async function checkAsset(workspace: string, asset: AssetSpecT): Promise<
   }
 }
 
-function instructionFor(asset: AssetSpecT): string {
+function instructionFor(asset: AssetSpecT, host: AssetHost = "auto"): string {
   const dims = asset.width && asset.height ? ` at exactly ${asset.width}x${asset.height}` : "";
+  if (host === "chatgpt") {
+    switch (asset.type) {
+      case "image":
+        return `Generate this image${dims} with ChatGPT's built-in Image Generation tool (or author it with a clean Python/Pillow or SVG script). No baked-in text. Save it to the target path.`;
+      case "illustration":
+        return `Generate a bespoke illustration${dims} with ChatGPT's built-in Image Generation tool (avoid template looks). Save it to the target path.`;
+      case "png_alpha":
+        return `Generate the subject${dims} with ChatGPT's Image Generation tool and cut it out to a fully transparent PNG (alpha channel preserved), or author it with Python/Pillow RGBA. Save it to the target path.`;
+      case "video":
+        return `ChatGPT cannot call external video APIs. Generate ONE crisp high-resolution keyframe image (16:9, no text) with Image Generation and save it as this video's poster source, then flag it for Ultra's deterministic 2.5D rig: set chatgptStrategy="native-image-plus-2.5d-rig" and animate zoom/pan/parallax with the engine (zero external video APIs).`;
+      case "sfx":
+      case "music": {
+        const preset = inferSynthPreset(asset.id, asset.type, `${asset.description} ${asset.prompt}`);
+        return `Synthesize offline with Ultra Workflow: \`ultra synth-audio --preset ${preset.preset} --out ${asset.targetPath} --duration ${asset.durationSec ?? 2}${
+          asset.type === "music" ? ` --bpm ${preset.bpm ?? 120} --mood ${preset.mood ?? "tech"}` : ""
+        }\` (or batch with \`ultra synth-audio --from-assets\`). 48 kHz stereo WAV, zero external APIs.`;
+      }
+      case "voice":
+        return `Use ChatGPT's native voice/TTS to render this line, save 48 kHz stereo WAV to the target path.`;
+      case "svg":
+        return `Hand-author a clean SVG (viewBox ${asset.width ?? 1920}x${asset.height ?? 1080}, no external references) or generate it with Python. Validate XML before saving.`;
+      case "3d_graph":
+        return `Author the JSON scene graph (engines/blender/schema.ts); in browserless ChatGPT containers Ultra renders it with the py-canvas wireframe/shaded polyhedron fallback deterministically.`;
+      default:
+        return "Generate the asset and save it to the target path.";
+    }
+  }
   switch (asset.type) {
     case "image":
       return `Generate an image${dims} with your native image generation tool. No text baked into the image. Save it to the target path.`;
@@ -207,7 +237,12 @@ function instructionFor(asset: AssetSpecT): string {
   }
 }
 
-export async function validateAssets(project: UltraProjectT, workspace: string): Promise<AssetValidation> {
+export async function validateAssets(
+  project: UltraProjectT,
+  workspace: string,
+  options: { host?: AssetHost } = {},
+): Promise<AssetValidation> {
+  const host = options.host ?? "auto";
   const checks: AssetCheckResult[] = [];
   for (const asset of project.assets) {
     checks.push(await checkAsset(workspace, asset));
@@ -229,6 +264,23 @@ export async function validateAssets(project: UltraProjectT, workspace: string):
     complete: missing.length === 0,
     missing: missing.map((asset) => {
       const check = checks.find((c) => c.id === asset.id);
+      const chatgpt = host === "chatgpt";
+      const strategy: "native-image" | "native-image-plus-2.5d-rig" | "ultra-synth-audio" | "python-authored" | undefined = chatgpt
+        ? asset.type === "video"
+          ? "native-image-plus-2.5d-rig"
+          : asset.type === "sfx" || asset.type === "music"
+            ? "ultra-synth-audio"
+            : ["image", "illustration", "png_alpha", "voice"].includes(asset.type)
+              ? "native-image"
+              : "python-authored"
+        : undefined;
+      const synthPreset =
+        chatgpt && (asset.type === "sfx" || asset.type === "music")
+          ? {
+              ...inferSynthPreset(asset.id, asset.type, `${asset.description} ${asset.prompt}`),
+              durationSec: asset.durationSec ?? undefined,
+            }
+          : undefined;
       return {
         id: asset.id,
         type: asset.type,
@@ -240,7 +292,9 @@ export async function validateAssets(project: UltraProjectT, workspace: string):
         ...(asset.durationSec ? { durationSec: asset.durationSec } : {}),
         ...(asset.requireAlpha ? { requireAlpha: asset.requireAlpha } : {}),
         targetPath: asset.targetPath,
-        instruction: `${instructionFor(asset)}${check && check.exists ? ` Current problem: ${check.status}.` : ""}`,
+        instruction: `${instructionFor(asset, host)}${check && check.exists ? ` Current problem: ${check.status}.` : ""}`,
+        ...(strategy ? { chatgptStrategy: strategy } : {}),
+        ...(synthPreset ? { synthPreset } : {}),
       };
     }),
   };

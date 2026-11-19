@@ -426,7 +426,8 @@ export const AssetManifest = z.object({
   assets: z.record(AssetCheck),
 });
 
-export const AssetTodo = z.object({  generatedAt: z.string(),
+export const AssetTodo = z.object({
+  generatedAt: z.string(),
   complete: z.boolean(),
   missing: z.array(
     z.object({
@@ -441,6 +442,17 @@ export const AssetTodo = z.object({  generatedAt: z.string(),
       requireAlpha: z.boolean().optional(),
       targetPath: z.string(),
       instruction: z.string(),
+      chatgptStrategy: z
+        .enum(["native-image", "native-image-plus-2.5d-rig", "ultra-synth-audio", "python-authored"])
+        .optional(),
+      synthPreset: z
+        .object({
+          preset: z.string(),
+          bpm: z.number().optional(),
+          mood: z.enum(["dark", "upbeat", "tech", "minimal"]).optional(),
+          durationSec: z.number().optional(),
+        })
+        .optional(),
     }),
   ),
 });
@@ -583,6 +595,8 @@ export type RubricCategoryT = z.infer<typeof RubricCategory>;
 
 export const DoctorReport = z.object({
   ok: z.boolean(),
+  renderTier: z.enum(["full-cdp", "browserless-py", "ffmpeg-only"]),
+  host: z.enum(["auto", "gemini", "muse", "chatgpt"]).nullable().default(null),
   os: z.object({
     platform: z.string(),
     release: z.string(),
@@ -591,6 +605,18 @@ export const DoctorReport = z.object({
   }),
   node: z.string(),
   python: z.string().nullable(),
+  pythonModules: z.object({
+    pil: z.boolean(),
+    numpy: z.boolean(),
+    cairosvg: z.boolean(),
+  }),
+  fonts: z.object({
+    regular: z.string().nullable(),
+    bold: z.string().nullable(),
+    mono: z.string().nullable(),
+    count: z.number().int().min(0),
+    directories: z.array(z.string()),
+  }),
   ffmpeg: z.object({ available: z.boolean(), version: z.string().nullable() }),
   ffprobe: z.object({ available: z.boolean(), version: z.string().nullable() }),
   browser: z.object({

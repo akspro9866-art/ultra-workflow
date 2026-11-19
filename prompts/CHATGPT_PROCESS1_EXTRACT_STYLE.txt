@@ -1,0 +1,12 @@
+CHATGPT · PROCESS 1 — EXTRACT A STYLE PACK (1–10 reference videos → downloadable `<slug>-style-pack.zip`)
+
+Repo: https://github.com/akspro9866-art/ultra-workflow · Ultra is zero-install/offline/zero-API. No npm install, no API keys, no external AI APIs.
+
+1. Get Ultra into this ChatGPT container:
+   a) `curl -L -o ultra-workflow-cloud.zip https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip` (or upload the zip I attached), then `unzip -q ultra-workflow-cloud.zip -d ultra && node ultra/ultra.mjs doctor --json --host chatgpt`.
+   b) If doctor says renderTier "full-cdp": Chromium exists — proceed normally. If "browserless-py": Ultra's py-canvas engine will render; use your native Image Generation for any stills and `ultra synth-audio` for sound.
+2. Upload 1–10 reference videos to the container. Run `node ultra/ultra.mjs style-probe <ref1..refN> --out workspace/style-probe --hook-window 5`.
+3. Inspect natively: workspace/style-probe/aggregate.json, batch-overview.png, every ref-XX/contact-sheet-*.png and candidates/*.png. Map-Reduce the 8 groups (Pacing, Motion, Typography, A/B-roll layering, Color/Texture, Transitions, Sound, Narrative).
+4. Author `<slug>/style.json` (strict core/style-schema.ts), STYLE.md ≥300 chars, 2–8 exemplars (pick candidate stills), deterministic motifs/*.html using __ULTRA_SEEK (no CDN scripts), optional grade.cube (LUT_3D_SIZE). For music/SFX references you cannot measure directly, encode intent via soundDesign + note that `ultra synth-audio` presets should realize it.
+5. Validate until exit 0: `node ultra/ultra.mjs style-validate <slug>`.
+6. Export: `node ultra/ultra.mjs style-export <slug> --out build/<slug>-style-pack.zip`. Deliver that single zip in chat for me to download + a summary table (slug, ASL stats, maxStaticHoldSec, beatSnapRatio, palette, exemplars). Never skip style-validate/export.

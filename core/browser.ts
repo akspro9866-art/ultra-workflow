@@ -22,6 +22,9 @@ export async function getBrowserInfo(): Promise<{
   kind: string | null;
   executablePath: string | null;
 }> {
+  if (process.env.ULTRA_NO_BROWSER === "1") {
+    return { available: false, kind: null, executablePath: null };
+  }
   const info = browserInfo();
   if (browserDriverMode() === "playwright") {
     try {

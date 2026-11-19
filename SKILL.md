@@ -27,6 +27,34 @@ be false in a fresh VM — expected: vector scenes use the built-in choreography
 runtime and every engine falls back to HyperFrames. Then:
 `ULTRA="node ultra-workflow/dist/ultra.mjs"` (or `node ultra/ultra.mjs` from the zip).
 
+## Platforms & render tiers (Gemini · Meta Muse · ChatGPT)
+
+Ultra is zero-install on all three. ChatGPT can load it either way:
+`curl -L -o ultra-workflow-cloud.zip https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip`
+(or upload the zip), then `unzip -q ultra-workflow-cloud.zip -d ultra && node ultra/ultra.mjs doctor --json --host chatgpt`.
+
+`doctor` reports `renderTier`:
+- **full-cdp** — Chromium available: the full HyperFrames/Three.js/CDP pipeline
+  runs unchanged (also Gemini/Muse VMs with a browser, or a local PC).
+- **browserless-py** — no browser (or `ULTRA_NO_BROWSER=1`) with Python 3 +
+  Pillow + FFmpeg (standard ChatGPT Linux container): `engines/py-canvas`
+  deterministically renders hyperframes/revideo/blender scenes with Pillow
+  (easing, word/line reveals, captions, sourceClip trims, chart/counter vectors,
+  image Ken Burns + seeded grain + motion blur, 3D wireframe) and pipes raw
+  frames to FFmpeg; Rule 5 lint + audit pairs run without Chromium.
+- **ffmpeg-only** — neither browser nor Pillow: reduced FFmpeg filtergraph
+  fallback (backgrounds + drawtext) so the pipeline never crashes.
+
+In ChatGPT containers use native Image Generation for stills/B-roll keyframes
+(`asset-plan --host chatgpt` flags `native-image-plus-2.5d-rig`) and the built-in
+synthesizer for sound:
+`$ULTRA synth-audio --preset whoosh|pop|sub-hit|riser|swoosh-reverse|chime|ui-click|glitch-zap|shutter|whoosh-fast --out …`
+and music beds `beat-pulse|ambient-tech|minimal-tension` with `--bpm --mood`
+(or `--from-assets` to fill every pending sfx/music asset in assets-todo.json).
+Ready-to-paste ChatGPT prompts live in `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.txt`,
+`prompts/CHATGPT_PROCESS2A_CLONE_REFERENCE.txt`,
+`prompts/CHATGPT_PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt`.
+
 ## Process router — recognise the user's intent FIRST
 
 | User says | Process | Prompt + flow |

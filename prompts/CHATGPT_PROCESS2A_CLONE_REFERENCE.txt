@@ -1,0 +1,12 @@
+CHATGPT · PROCESS 2A — CLONE A REFERENCE VIDEO 1:1 (native images + synth-audio + deterministic render + Rule 5)
+
+Repo: https://github.com/akspro9866-art/ultra-workflow · Zero-install/offline/zero-API: `curl -L -o ultra-workflow-cloud.zip https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip` (or upload the zip), `unzip -q ultra-workflow-cloud.zip -d ultra`, `node ultra/ultra.mjs doctor --json --host chatgpt`.
+
+1. `node ultra/ultra.mjs probe <ref.mp4>`; inspect probe.json/contact sheets. Author workspace/DESIGN.md, Motion.md, ultra.json (contiguous scenes, primitives: reveal/camera/clipReveal/svgDraw/motionBlurSamples).
+2. `node ultra/ultra.mjs asset-plan --host chatgpt`. Generate assets natively:
+   - image/illustration/png_alpha → ChatGPT Image Generation (or clean Python/SVG), save to targetPath.
+   - video B-roll → generate ONE crisp 16:9 keyframe image; enginePayload/layer will animate it with the deterministic 2.5D rig (chatgptStrategy native-image-plus-2.5d-rig).
+   - sfx/music → run `node ultra/ultra.mjs synth-audio --preset <preset> --out <targetPath> [--bpm --mood]` (or `--from-assets`).
+3. `validate-assets`, then `build` (full-cdp uses HyperFrames/Three.js; browserless-py uses py-canvas deterministically — same spec).
+4. `verify <ref.mp4>`: inspect every build/audit-frames/pair_*.png + verify-report.json; stutterEvents must be 0, rubric ≥90. Patch weak scenes via workspace/patch.json + `patch`/`build`/`verify` (≤3 rounds).
+5. `render` only after PASS; deliver build/ultra-final.mp4 + rubric scores + engine table + patch history. No AI APIs, no API keys, no npm install.

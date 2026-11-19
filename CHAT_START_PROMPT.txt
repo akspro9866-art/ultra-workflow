@@ -1,7 +1,8 @@
 You have Ultra Workflow v3 available — zero-install, offline, zero-API. Pick the process matching my request, then follow its prompt file from the repo:
 
 Repo: https://github.com/akspro9866-art/ultra-workflow
-Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json` (fallback: unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`). Then read SKILL.md.
+Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json` (fallback: unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`). Read SKILL.md.
+ChatGPT container: download the zip via raw URL `https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip` (or upload it), unzip, run `doctor --json --host chatgpt`. If renderTier is browserless-py, Ultra self-renders with py-canvas; use native Image Generation for stills/B-roll keyframes and `ultra synth-audio` (whoosh/pop/riser/beat-pulse/ambient-tech/minimal-tension…) for SFX/music.
 
 Choose ONE:
 - I uploaded 1–10 reference videos and want a reusable style → PROCESS 1: follow prompts/PROCESS1_EXTRACT_STYLE.txt (style-probe → Map-Reduce 8 groups → author style.json/STYLE.md/motifs/exemplars → style-validate exit 0 → style-export) and deliver `<slug>-style-pack.zip` for me to download.

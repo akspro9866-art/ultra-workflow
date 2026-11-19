@@ -88,6 +88,11 @@ async function main(): Promise<void> {
     path.join(root, "engines", "blender", "render_scene.py"),
     path.join(stage, "engines", "blender", "render_scene.py"),
   );
+  await ensureDir(path.join(stage, "engines", "py-canvas"));
+  await fs.copyFile(
+    path.join(root, "engines", "py-canvas", "render_scene.py"),
+    path.join(stage, "engines", "py-canvas", "render_scene.py"),
+  );
 
   for (const doc of ["SKILL.md", "CHAT_START_PROMPT.txt", "SPEC.md", "README.md"]) {
     await fs.copyFile(path.join(root, doc), path.join(stage, doc));
@@ -129,8 +134,8 @@ async function main(): Promise<void> {
   if (zipMiB > 10) {
     throw new Error(`cloud zip exceeds the 10 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
   }
-  if (zipMiB > 2.5) {
-    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v1 target was < 2.5 MiB; v3 limit is 10 MiB)`);
+  if (zipMiB > 1) {
+    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v4 target is well under 1 MiB)`);
   }
   await rmrf(stage);
 
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
     `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · styles ${styleCount} · prompts ${promptCount} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
   );
   console.log(
-    `  contents: ultra.mjs, ultra, ultra.cmd, package.json, assets/vendor/, styles/ (+registry), prompts/, engines/blender/render_scene.py, docs`,
+    `  contents: ultra.mjs, ultra, ultra.cmd, package.json, assets/vendor/, styles/ (+registry), prompts/, engines/blender+py-canvas scripts, docs`,
   );
 }
 

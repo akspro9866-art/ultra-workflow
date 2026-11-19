@@ -2,8 +2,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { ProbeResultT, UltraProjectT } from "../core/schema.js";
 import { extractFrameAt } from "../core/probe.js";
-import { renderHtmlToPng } from "../core/browser.js";
-import { ffmpeg } from "../core/ffmpeg.js";
+import { renderHtmlToPng, getBrowserInfo } from "../core/browser.js";
+import { ffmpeg, ffmpegOk } from "../core/ffmpeg.js";
+import { discoverFonts } from "../core/env.js";
+import { escapeFilterPath } from "../core/stitcher.js";
 import { ensureDir, formatTimestamp, rmrf, round } from "../core/util.js";
 
 export interface VisualPair {
@@ -14,7 +16,42 @@ export interface VisualPair {
   ssim: number | null;
 }
 
-/** Structural similarity between two extracted frames (downscaled, deterministic). */
+/** Browserless pair composition: FFmpeg hstack + optional drawtext labels. */
+async function composePairFfmpeg(
+  refFile: string,
+  draftFile: string,
+  outFile: string,
+  timestampSec: number,
+  sceneId: string,
+): Promise<void> {
+  const fonts = await discoverFonts().catch(() => null);
+  const fontFile = fonts?.bold ?? fonts?.regular ?? null;
+  const fontOpt = fontFile ? `:fontfile='${escapeFilterPath(fontFile)}'` : "";
+  const draw = (text: string, x: number, y: number, size: number, color: string) => {
+    const escaped = text
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "")
+      .replace(/:/g, "\\:")
+      .replace(/,/g, "\\,")
+      .replace(/\[/g, "\\[")
+      .replace(/\]/g, "\\]");
+    return `drawtext=text='${escaped}':x=${x}:y=${y}:fontsize=${size}:fontcolor=${color}${fontOpt}`;
+  };
+  const half = "[0:v]scale=760:420:force_original_aspect_ratio=decrease,pad=760:420:(ow-iw)/2:(oh-ih)/2:color=black,pad=800:470:20:44:color=0x151a21[a]";
+  const half2 = "[1:v]scale=760:420:force_original_aspect_ratio=decrease,pad=760:420:(ow-iw)/2:(oh-ih)/2:color=black,pad=800:470:20:44:color=0x151a21[b]";
+  const labels = fontFile
+    ? [
+        draw("ORIGINAL", 24, 14, 20, "0xff8a93"),
+        draw("DRAFT", 824, 14, 20, "0x7cc0ff"),
+        draw(formatTimestamp(timestampSec), 24, 448, 15, "0xffffff"),
+        draw(sceneId.replace(/[^A-Za-z0-9._-]/g, "_"), 1400, 448, 15, "0x8ab4f8"),
+      ].join(",")
+    : null;
+  const graph = `${half};${half2};[a][b]hstack=inputs=2${labels ? `,${labels}` : ""}[out]`;
+  await ffmpegOk(["-i", refFile, "-i", draftFile, "-filter_complex", graph, "-map", "[out]", "-frames:v", "1", outFile], {
+    timeoutMs: 120_000,
+  });
+}
 async function ssimBetween(a: string, b: string): Promise<number | null> {
   try {
     const run = await ffmpeg(
@@ -100,6 +137,7 @@ export async function buildVisualPairs(opts: {
   await ensureDir(opts.outDir);
   const scratch = path.join(opts.outDir, "scratch");
   await ensureDir(scratch);
+  const browserAvailable = process.env.ULTRA_NO_BROWSER !== "1" && (await getBrowserInfo().catch(() => ({ available: false }))).available;
 
   const pairs: VisualPair[] = [];
   for (let i = 0; i < capped.length; i += 1) {
@@ -108,17 +146,21 @@ export async function buildVisualPairs(opts: {
     const draftFrame = path.join(scratch, `draft_${String(i + 1).padStart(2, "0")}.png`);
     await extractFrameAt(opts.reference, t, refFrame, 960);
     await extractFrameAt(opts.draft, Math.min(t, duration - 0.05), draftFrame, 960);
-    const [refBuf, draftBuf] = await Promise.all([fs.readFile(refFrame), fs.readFile(draftFrame)]);
     const sceneId = sceneIdAt(project, t);
     const ssim = await ssimBetween(refFrame, draftFrame);
-    const html = pairHtml(
-      `data:image/png;base64,${refBuf.toString("base64")}`,
-      `data:image/png;base64,${draftBuf.toString("base64")}`,
-      formatTimestamp(t),
-      `${sceneId} · pair ${String(i + 1).padStart(2, "0")}`,
-    );
     const out = path.join(opts.outDir, `pair_${String(i + 1).padStart(2, "0")}.png`);
-    await renderHtmlToPng(html, 1720, 660, out);
+    if (browserAvailable) {
+      const [refBuf, draftBuf] = await Promise.all([fs.readFile(refFrame), fs.readFile(draftFrame)]);
+      const html = pairHtml(
+        `data:image/png;base64,${refBuf.toString("base64")}`,
+        `data:image/png;base64,${draftBuf.toString("base64")}`,
+        formatTimestamp(t),
+        `${sceneId} · pair ${String(i + 1).padStart(2, "0")}`,
+      );
+      await renderHtmlToPng(html, 1720, 660, out);
+    } else {
+      await composePairFfmpeg(refFrame, draftFrame, out, t, sceneId);
+    }
     pairs.push({ index: i + 1, path: out, timestampSec: t, sceneId, ssim });
   }
   await rmrf(scratch);

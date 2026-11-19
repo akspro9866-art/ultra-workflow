@@ -179,3 +179,48 @@ export zip (CRC-checked) → import into an isolated temp repo + registry →
 raw-probe detects the deliberate 1.5s silence gap and emits keepSegments →
 sourceClip build with punch-in + styled captions + style grade → `verify --style`
 (compliance pass, stutterEvents 0, style-match.png) → renderable `yuv420p` CFR MP4.
+
+## 11. v4 — Tri-platform edition (Gemini · Meta Muse · ChatGPT)
+
+`ultra doctor --json [--host auto|gemini|muse|chatgpt]` reports a `renderTier`:
+- **full-cdp** — Chromium/Chrome/Edge present: the CDP HyperFrames/Three.js
+  pipeline (plus optional Remotion/Revideo) runs unchanged (phases 1–8).
+- **browserless-py** — no browser (or `ULTRA_NO_BROWSER=1`) with Python 3 +
+  Pillow + FFmpeg (ChatGPT Linux containers): `engines/py-canvas` takes over
+  hyperframes/revideo/blender/remotion scenes, renders deterministic frames with
+  Pillow (UltraEase-compatible easings incl. expo/back/power3 aliases, char/word/
+  line reveals with active-word pills, sourceClip trims with camera punch-ins,
+  chart/counter/code vector choreography with rounded cards and arrowheads,
+  image layers with camera Ken Burns, seeded per-frame film grain, motion-blur
+  averaging, blender wireframe/shaded polyhedron alpha fallback) and pipes raw
+  RGB(A) straight into FFmpeg (yuv420p TV levels; ProRes 4444 alpha overlays).
+  Rule 5 lint runs through the Python layout linter (clip/contrast/brokenMedia/
+  blank) and side-by-side audit pairs compose via FFmpeg hstack (no Chromium).
+  Builds record `fallbackReason: "browserless-py"` and use separate cache keys.
+- **ffmpeg-only** — neither browser nor Pillow: py-canvas's FFmpeg filtergraph
+  fallback (color + drawtext) so the pipeline never crashes.
+Doctor also reports `pythonModules` (PIL/numpy/cairosvg) and discovered
+regular/bold/mono TrueType fonts (Linux `/usr/share/fonts`, Windows
+`C:\Windows\Fonts`, macOS, plus `workspace/assets/fonts`).
+
+`ultra asset-plan --host chatgpt` adapts instructions to native ChatGPT
+capabilities: image/illustration/png_alpha → Image Generation; video B-roll →
+`chatgptStrategy: "native-image-plus-2.5d-rig"` (one keyframe + deterministic
+zoom/pan); sfx/music → `chatgptStrategy: "ultra-synth-audio"` with ready
+`synthPreset` specs ({preset,bpm,mood,durationSec}).
+
+`ultra synth-audio --preset <name> --out <wav> [--duration --bpm --mood --spec]`
+and `--from-assets [assets-todo.json]` implement a zero-dependency 48 kHz
+16-bit stereo WAV synthesizer (seeded noise, pink filter, sweeps, FM/sub punch,
+stereo widening, soft-clip limiter, dither). SFX presets: whoosh, whoosh-fast,
+sub-hit, riser, pop, ui-click, glitch-zap, shutter, swoosh-reverse, chime;
+music: beat-pulse (bpm-locked kick/hat/sub loop), ambient-tech, minimal-tension.
+
+Cloud zip keeps `engines/py-canvas/render_scene.py` alongside `ultra.mjs`,
+vendor/assets, `styles/`, `prompts/` and the Blender script; docs cover both
+ChatGPT load paths (raw.githubusercontent.com download or zip upload) and three
+`prompts/CHATGPT_*.txt` files. `tests/phase9.chatgpt-browserless.test.ts`
+simulates the container: zero node_modules, `ULTRA_NO_BROWSER=1`,
+`renderTier=browserless-py`, synth WAVs probed at 48 kHz/2ch, py-canvas
+multi-scene build (sourceClip + kinetic title + chart + alpha wireframe),
+`verify` (stutterEvents 0, FFmpeg audit pairs), and a playable yuv420p MP4.
