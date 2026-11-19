@@ -68,6 +68,10 @@ async function main(): Promise<void> {
   }
 
   const bundleBytes = await bundleCli(root, dist);
+  // Keep clone-and-run launchers next to the bundle at the dist root (tracked in git).
+  await fs.writeFile(path.join(dist, "ultra"), LAUNCHER_SH, "utf8");
+  await fs.chmod(path.join(dist, "ultra"), 0o755);
+  await fs.writeFile(path.join(dist, "ultra.cmd"), LAUNCHER_CMD, "utf8");
 
   const stage = path.join(dist, "pack-cloud");
   await rmrf(stage);
@@ -88,9 +92,9 @@ async function main(): Promise<void> {
     await fs.copyFile(path.join(root, doc), path.join(stage, doc));
   }
 
-  await fs.writeFile(path.join(stage, "ultra"), LAUNCHER_SH, "utf8");
+  await fs.copyFile(path.join(dist, "ultra"), path.join(stage, "ultra"));
   await fs.chmod(path.join(stage, "ultra"), 0o755);
-  await fs.writeFile(path.join(stage, "ultra.cmd"), LAUNCHER_CMD, "utf8");
+  await fs.copyFile(path.join(dist, "ultra.cmd"), path.join(stage, "ultra.cmd"));
 
   const zipPath = path.join(dist, "ultra-workflow-cloud.zip");
   await rmrf(zipPath);

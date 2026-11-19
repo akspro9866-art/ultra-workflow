@@ -11,22 +11,29 @@ probe → DESIGN/Motion/ultra.json → validate-spec → asset-plan → (generat
 
 ## Cloud quick start (Gemini / Meta Muse — no npm install)
 
+Primary — clone the GitHub repo (prebuilt `dist/ultra.mjs` is tracked):
+
 ```bash
-unzip -q ultra-workflow-cloud.zip -d ultra
-node ultra/ultra.mjs doctor --json
-node ultra/ultra.mjs probe reference.mp4
+git clone <GITHUB_REPO_URL> ultra-workflow
+node ultra-workflow/dist/ultra.mjs doctor --json
+node ultra-workflow/dist/ultra.mjs probe reference.mp4
 # agent writes workspace/DESIGN.md, Motion.md, ultra.json (+ workspace/scenes/*.html)
-node ultra/ultra.mjs validate-spec && node ultra/ultra.mjs asset-plan
+node ultra-workflow/dist/ultra.mjs validate-spec && node ultra-workflow/dist/ultra.mjs asset-plan
 # agent generates assets natively…
-node ultra/ultra.mjs validate-assets && node ultra/ultra.mjs build
-node ultra/ultra.mjs verify reference.mp4     # stutterEvents must be 0
-node ultra/ultra.mjs render                   # build/ultra-final.mp4
+node ultra-workflow/dist/ultra.mjs validate-assets && node ultra-workflow/dist/ultra.mjs build
+node ultra-workflow/dist/ultra.mjs verify reference.mp4   # stutterEvents must be 0
+node ultra-workflow/dist/ultra.mjs render                 # build/ultra-final.mp4
 ```
+
+Fallback — no GitHub access: attach `ultra-workflow-cloud.zip`, then
+`unzip -q ultra-workflow-cloud.zip -d ultra && node ultra/ultra.mjs doctor --json`
+(same commands with `node ultra/ultra.mjs`).
+
 `ultra.mjs` is a single esbuild bundle (zod + commander + ws + all internals) with
 a native **CDP browser driver** — it discovers any chromium/chrome/edge (system
 or Playwright/Puppeteer cache; `ULTRA_BROWSER_PATH` overrides) and needs nothing
-else. Attach `dist/ultra-workflow-cloud.zip` + your reference video and paste
-`CHAT_START_PROMPT.txt`; the bundled `SKILL.md` is the autonomous playbook.
+else. Paste `CHAT_START_PROMPT.txt` into a fresh Gemini/Muse chat; the bundled
+`SKILL.md` is the autonomous playbook.
 
 ## Scene authoring: primitives + escape hatch
 

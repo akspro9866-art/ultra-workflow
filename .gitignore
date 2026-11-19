@@ -1,16 +1,16 @@
 node_modules/
+engines/*/node_modules/
 tmp/
-.ultra-cache/
+workspace/
 build/
-dist/
-dist/*.mp4
-*.log
-workspace/probe-frames/
-workspace/contact-sheet-*.png
-workspace/probe.json
-workspace/assets-todo.json
-workspace/assets.manifest.json
-workspace/audio-envelope.json
-
+.ultra-cache/
 __pycache__/
 *.pyc
+*.log
+
+# dist: only the zero-install runtime is tracked (clone → node dist/ultra.mjs)
+dist/*
+!dist/ultra.mjs
+!dist/ultra
+!dist/ultra.cmd
+!dist/ultra-workflow-cloud.zip

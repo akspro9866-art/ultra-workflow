@@ -6,15 +6,26 @@ internet, no CDN, no API keys. Work through the rules below **in order**.
 
 ## 0 · Boot (once per chat, zero install)
 
+Primary — clone the GitHub repo (the prebuilt bundle is tracked):
+
+```bash
+git clone <GITHUB_REPO_URL> ultra-workflow
+node ultra-workflow/dist/ultra.mjs doctor --json
+```
+
+Fallback — no GitHub access: attach `ultra-workflow-cloud.zip` instead:
+
 ```bash
 unzip -q ultra-workflow-cloud.zip -d ultra
 node ultra/ultra.mjs doctor --json
 ```
-Read the JSON. `browser` must be available (system chromium/chrome/edge or a
-Playwright/Puppeteer cache is auto-discovered; `ULTRA_BROWSER_PATH` overrides).
-`remotion.installed` / `revideo.installed` will be false in a fresh VM — that is
-expected: vector scenes use the built-in choreography runtime and every engine
-falls back to HyperFrames. From now on: `ULTRA="node ultra/ultra.mjs"`.
+
+No `npm install`, no internet needed in either mode. `browser` must be available
+(system chromium/chrome/edge or a Playwright/Puppeteer cache is auto-discovered;
+`ULTRA_BROWSER_PATH` overrides). `remotion.installed` / `revideo.installed` will
+be false in a fresh VM — expected: vector scenes use the built-in choreography
+runtime and every engine falls back to HyperFrames. Then:
+`ULTRA="node ultra-workflow/dist/ultra.mjs"` (or `node ultra/ultra.mjs` from the zip).
 
 ## 1 · ANALYZE (Rule 1 — measure, never guess)
 
