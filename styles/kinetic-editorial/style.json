@@ -1,0 +1,112 @@
+{
+  "meta": {
+    "slug": "kinetic-editorial",
+    "name": "Kinetic Editorial",
+    "description": "16:9 Vox-style documentary explainer: measured pacing, warm paper palette, underline captions and SVG path-draw callouts.",
+    "version": "1.0.0",
+    "createdAt": "2026-11-19T00:00:00.000Z",
+    "referenceCount": 1,
+    "sourceNotes": "Desk-designed editorial explainer pack; type-led chapters, halftone texture and data callouts in a vermilion/charcoal system."
+  },
+  "pacing": {
+    "hookWindowSec": 5,
+    "hookAslSec": [1.5, 2.5],
+    "bodyAslSec": [2.5, 4.5],
+    "outroAslSec": [3.0, 5.0],
+    "maxStaticHoldSec": 4.5,
+    "silenceTrimMs": 220,
+    "jCutMs": 240,
+    "lCutMs": 300,
+    "beatSnapRatioTarget": 0.45
+  },
+  "motion": {
+    "dominantEasing": "easeInOutSine",
+    "secondaryEasings": ["easeOutCubic", "easeInOutCubic"],
+    "punchInScaleRange": [1.0, 1.08],
+    "kenBurnsDriftScale": 0.7,
+    "motionBlurSamples": 2,
+    "shutterAngle": 180,
+    "cameraDriftAmplitude": 8
+  },
+  "typography": {
+    "displayFont": "Ultra Display",
+    "captionFont": "Ultra Sans",
+    "monoFont": "Ultra Mono",
+    "casing": "title",
+    "captionChunkWords": [3, 6],
+    "safeZoneYPercent": 84,
+    "activeWordHighlight": "underline",
+    "strokePx": 0,
+    "shadowSpec": "0 2px 10px rgba(0,0,0,0.35)"
+  },
+  "visualLayering": {
+    "aRollRatio": 0.72,
+    "bRollRatio": 0.22,
+    "motionGraphicRatio": 0.06,
+    "preferredEngines": ["hyperframes", "revideo"],
+    "motifTriggers": [
+      {
+        "trigger": "chapter",
+        "motifFile": "motifs/chapter-card.html",
+        "description": "Editorial chapter card with ruled margins and a vermilion chapter index."
+      },
+      {
+        "trigger": "data",
+        "motifFile": "motifs/data-callout.html",
+        "description": "Hand-drawn SVG arrow with a large statistic and a source line."
+      }
+    ]
+  },
+  "colorAndTexture": {
+    "palette": {
+      "bg": "#f6f0e6",
+      "surface": "#e8dfce",
+      "textPrimary": "#1c1b18",
+      "textMuted": "#6a645a",
+      "accent1": "#e4572e",
+      "accent2": "#2f5d62"
+    },
+    "grade": {
+      "exposure": 0,
+      "contrast": 0.06,
+      "saturation": 0.96,
+      "temperature": 0.12,
+      "vignette": 0.12
+    },
+    "grainOpacity": 0.06,
+    "halationOpacity": 0.08,
+    "halftoneOpacity": 0.1
+  },
+  "transitions": {
+    "mix": { "cut": 0.4, "fade": 0.25, "wipeleft": 0.2, "circleopen": 0.15 },
+    "durationFrames": [8, 20],
+    "bannedTypes": ["slideup"]
+  },
+  "soundDesign": {
+    "targetLufs": -14,
+    "musicDuckingDb": -14,
+    "musicBpmRange": [80, 110],
+    "eventToSfxMap": {
+      "chapter": "chime",
+      "data": "pop",
+      "transition": "whoosh",
+      "accent": "ui-click",
+      "stat": "pop"
+    }
+  },
+  "narrative": {
+    "hookPatterns": [
+      "Cold open on the surprising number",
+      "Set up a question the viewer already asked",
+      "Contrast two costs before chapter one"
+    ],
+    "chapterResetIntervalSec": 24,
+    "styleInvariants": [
+      "Chapter cards establish the argument in under 2.5s",
+      "Data callouts draw their arrow before the number settles",
+      "Captions underline the active word in vermilion",
+      "Paper texture and halftone stay below 0.1 opacity"
+    ],
+    "antiPatterns": ["Neon SaaS gradients", "Tiny caption walls", "Fast whip-pan transitions", "Stock-photo handshakes"]
+  }
+}

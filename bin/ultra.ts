@@ -18,7 +18,20 @@ import { applyPatch } from "../verifier/patcher.js";
 import { runStyleVerify } from "../verifier/style-verify.js";
 import { styleProbe } from "../core/style-probe.js";
 import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
-import { rawProbe } from "../core/raw-probe.js";
+import { loadStylePack, rawProbe } from "../core/raw-probe.js";
+import {
+  DEFAULT_CAPTION_TYPOGRAPHY,
+  buildCaptionsDoc,
+  forceAlignScript,
+  parseSrt,
+  parseVtt,
+  parseWordJson,
+  wordsFromCues,
+  type AudioEnvelopeLike,
+  type CaptionTypography,
+} from "../core/captions.js";
+import { isAspectProfile, safeZonesFor } from "../core/safe-zones.js";
+import { buildStatus } from "../core/status.js";
 import {
   SYNTH_PRESETS,
   defaultSynthDuration,
@@ -116,6 +129,9 @@ program
       console.log(`  node        ${report.node}`);
       console.log(`  python      ${report.python ?? "not found"} · PIL ${report.pythonModules.pil ? "yes" : "no"} · numpy ${report.pythonModules.numpy ? "yes" : "no"} · cairosvg ${report.pythonModules.cairosvg ? "yes" : "no"}`);
       console.log(`  fonts       ${report.fonts.count} files · regular ${report.fonts.regular ?? "—"} · bold ${report.fonts.bold ?? "—"} · mono ${report.fonts.mono ?? "—"}`);
+      console.log(
+        `  bundled     ${report.fonts.bundledFonts.length} offline TTFs${report.fonts.bundledFonts.length ? ` · ${report.fonts.bundledFonts.map((f) => f.file).join(", ")}` : ""}${report.forcedTier ? ` · forcedTier=${report.forcedTier}` : ""}`,
+      );
       console.log(`  ffmpeg      ${report.ffmpeg.version ?? "not found"}`);
       console.log(`  ffprobe     ${report.ffprobe.version ?? "not found"}`);
       console.log(`  browser     ${report.browser.kind ?? "not found"}${report.browser.executablePath ? ` (${report.browser.executablePath})` : ""}`);
@@ -126,6 +142,26 @@ program
       for (const warning of report.warnings) console.log(`  warning     ${warning}`);
     }
     if (!report.ok) process.exitCode = 1;
+  });
+
+program
+  .command("status")
+  .description("Agent state tracker: detected process, completed stages, missing prerequisites, exact next command")
+  .option("--json", "machine-readable JSON only")
+  .action(async (options: { json?: boolean }) => {
+    const { workspace, buildDir } = paths();
+    const report = await buildStatus({ workspace, buildDir });
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+    console.log(`ultra status · ${report.process}`);
+    console.log(`  workspace   ${report.workspace}`);
+    for (const stage of report.stages) {
+      console.log(`  ${stage.done ? "done" : "todo"}  ${stage.name}${stage.note ? ` · ${stage.note}` : ""}`);
+    }
+    console.log(`  next        ${report.nextCommand}`);
+    for (const note of report.notes) console.log(`  note        ${note}`);
   });
 
 program
@@ -490,10 +526,12 @@ program
   .description("Process 2B · Rule 1: probe MY footage and emit workspace/raw-probe/raw-edit-plan.json")
   .requiredOption("--style <slug>", "installed Style Pack slug")
   .option("--out <dir>", "output directory", "workspace/raw-probe")
-  .action(async (video: string, options: { style: string; out: string }) => {
-    const result = await rawProbe(video, options.style, options.out);
+  .option("--aspect <aspect>", "9:16|16:9|1:1 platform safe zones", "16:9")
+  .action(async (video: string, options: { style: string; out: string; aspect: string }) => {
+    if (!isAspectProfile(options.aspect)) throw new CliError(`--aspect must be 9:16, 16:9 or 1:1 (got "${options.aspect}")`);
+    const result = await rawProbe(video, options.style, options.out, options.aspect);
     console.log(`raw-probe → ${path.join(result.outputDir, "raw-edit-plan.json")}`);
-    console.log(`  source ${result.plan.durationSec}s @ ${result.plan.fps}fps · style ${options.style}`);
+    console.log(`  source ${result.plan.durationSec}s @ ${result.plan.fps}fps · style ${options.style} · aspect ${result.plan.aspect}`);
     console.log(
       `  silence   ${result.plan.silences.length} interval(s) · removed ${result.plan.removedDurationSec}s after ${result.plan.silenceTrimMs}ms trim`,
     );
@@ -504,6 +542,121 @@ program
     console.log(
       `  pacing    hook ends ${result.plan.pacing.hookEndSec}s · body ASL ${result.plan.pacing.targetBodyAslSec}s · max hold ${result.plan.pacing.maxStaticHoldSec}s · punch-ins ${result.plan.pacing.punchInPoints.length} · B-roll ${result.plan.pacing.brollCutaways.length}`,
     );
+  });
+
+program
+  .command("captions-align")
+  .description("Word-level caption alignment: SRT/VTT/word-JSON or script+audio-envelope forced alignment → workspace/captions.json")
+  .option("--out <path>", "output captions JSON", "workspace/captions.json")
+  .option("--srt <file>", "SubRip .srt captions")
+  .option("--vtt <file>", "WebVTT .vtt captions")
+  .option("--words <file>", "word-level timestamp JSON")
+  .option("--script <file>", "plain script text (requires --envelope)")
+  .option("--envelope <file>", "audio envelope JSON for forced alignment", "workspace/raw-probe/audio-envelope.json")
+  .option("--style <slug>", "Style Pack for caption chunking / highlight typography")
+  .option("--aspect <aspect>", "9:16|16:9|1:1 platform safe zones", "9:16")
+  .action(async (options: {
+    out: string;
+    srt?: string;
+    vtt?: string;
+    words?: string;
+    script?: string;
+    envelope: string;
+    style?: string;
+    aspect: string;
+  }) => {
+    if (!isAspectProfile(options.aspect)) throw new CliError(`--aspect must be 9:16, 16:9 or 1:1 (got "${options.aspect}")`);
+    const inputs = [options.srt, options.vtt, options.words, options.script].filter((v): v is string => Boolean(v));
+    if (inputs.length !== 1) {
+      throw new CliError("captions-align needs exactly ONE input: --srt <file>, --vtt <file>, --words <file> or --script <file>");
+    }
+
+    let typography: CaptionTypography = { ...DEFAULT_CAPTION_TYPOGRAPHY };
+    let minWords = 2;
+    let maxWords = 4;
+    if (options.style) {
+      try {
+        const { style } = await loadStylePack(options.style);
+        typography = {
+          captionFont: style.typography.captionFont,
+          casing: style.typography.casing,
+          activeWordHighlight: style.typography.activeWordHighlight,
+          strokePx: style.typography.strokePx,
+        };
+        minWords = style.typography.captionChunkWords[0] as number;
+        maxWords = style.typography.captionChunkWords[1] as number;
+      } catch (err) {
+        throw new CliError(`--style ${options.style}: ${(err as Error).message}`);
+      }
+    }
+
+    let words;
+    let sourceKind: "srt" | "vtt" | "words" | "script-forced";
+    let sourceInput: string;
+    if (options.srt) {
+      sourceKind = "srt";
+      sourceInput = path.resolve(options.srt);
+      words = wordsFromCues(parseSrt(await fs.readFile(sourceInput, "utf8").catch(() => {
+        throw new CliError(`cannot read --srt ${sourceInput}`);
+      })));
+    } else if (options.vtt) {
+      sourceKind = "vtt";
+      sourceInput = path.resolve(options.vtt);
+      words = wordsFromCues(parseVtt(await fs.readFile(sourceInput, "utf8").catch(() => {
+        throw new CliError(`cannot read --vtt ${sourceInput}`);
+      })));
+    } else if (options.words) {
+      sourceKind = "words";
+      sourceInput = path.resolve(options.words);
+      const raw = JSON.parse(await fs.readFile(sourceInput, "utf8").catch(() => {
+        throw new CliError(`cannot read --words ${sourceInput}`);
+      })) as unknown;
+      words = parseWordJson(raw);
+    } else {
+      sourceKind = "script-forced";
+      sourceInput = path.resolve(options.script as string);
+      const script = await fs.readFile(sourceInput, "utf8").catch(() => {
+        throw new CliError(`cannot read --script ${sourceInput}`);
+      });
+      const envelopePath = path.resolve(options.envelope);
+      let envelopeRaw: unknown;
+      try {
+        envelopeRaw = JSON.parse(await fs.readFile(envelopePath, "utf8"));
+      } catch {
+        throw new CliError(
+          `--script forced alignment needs an audio envelope at ${envelopePath}. Run \`ultra probe\` / \`ultra raw-probe\` first or pass --envelope <audio-envelope.json>.`,
+        );
+      }
+      const candidate = (envelopeRaw as Record<string, unknown>)?.["envelope"] ?? envelopeRaw;
+      const envelope = candidate as AudioEnvelopeLike;
+      if (!envelope || !Array.isArray(envelope.frames) || envelope.frames.length === 0) {
+        throw new CliError(`envelope ${envelopePath} has no frames[] — regenerate it with ultra probe / raw-probe`);
+      }
+      const aligned = forceAlignScript(script, envelope);
+      words = aligned.words;
+    }
+
+    const doc = buildCaptionsDoc(words, {
+      aspect: options.aspect,
+      source: { kind: sourceKind, input: sourceInput },
+      style: options.style ?? null,
+      typography,
+      minWords,
+      maxWords,
+    });
+    const out = path.resolve(options.out);
+    await ensureDir(path.dirname(out));
+    await writeJsonAtomic(out, doc);
+    const zones = safeZonesFor(options.aspect);
+    console.log(`captions-align → ${out}`);
+    console.log(
+      `  ${doc.stats.words} words · ${doc.stats.chunks} chunks · ${doc.stats.activeSpeechSec}s active speech · aspect ${doc.aspect} · style ${doc.style ?? "none"}`,
+    );
+    console.log(
+      `  safeBox   x ${zones.captionBand.x * 100}% · y ${zones.captionBand.y * 100}% · w ${zones.captionBand.width * 100}% · h ${zones.captionBand.height * 100}% (fully inside safeRect)`,
+    );
+    const first = doc.chunks[0];
+    if (first) console.log(`  chunk 1   ${first.startSec}s→${first.endSec}s "${first.text}"${first.emphasis ? " · emphasis" : ""}`);
   });
 
 program

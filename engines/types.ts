@@ -1,6 +1,6 @@
 import type { LintDefectT, SceneSpecT, UltraProjectT } from "../core/schema.js";
 
-export type EngineKey = "hyperframes" | "remotion" | "revideo" | "blender" | "py-canvas";
+export type EngineKey = "hyperframes" | "remotion" | "revideo" | "blender" | "py-canvas" | "ffmpeg-only";
 
 export interface RenderContext {
   project: UltraProjectT;

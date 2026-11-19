@@ -42,8 +42,10 @@ Ultra is zero-install on all three. ChatGPT can load it either way:
   (easing, word/line reveals, captions, sourceClip trims, chart/counter vectors,
   image Ken Burns + seeded grain + motion blur, 3D wireframe) and pipes raw
   frames to FFmpeg; Rule 5 lint + audit pairs run without Chromium.
-- **ffmpeg-only** — neither browser nor Pillow: reduced FFmpeg filtergraph
-  fallback (backgrounds + drawtext) so the pipeline never crashes.
+- **ffmpeg-only** — neither browser nor Pillow, or `ULTRA_FORCE_TIER=ffmpeg-only`:
+  dedicated pure-FFmpeg engine (`engines/ffmpeg-only`) with bundled-TTF drawtext,
+  drawbox, zoompan punch-ins, sourceClip trims, noise grain and color grade; emits
+  valid CFR yuv420p (or ProRes alpha). Never crash, always render.
 
 In ChatGPT containers use native Image Generation for stills/B-roll keyframes
 (`asset-plan --host chatgpt` flags `native-image-plus-2.5d-rig`) and the built-in
@@ -54,6 +56,31 @@ and music beds `beat-pulse|ambient-tech|minimal-tension` with `--bpm --mood`
 Ready-to-paste ChatGPT prompts live in `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.txt`,
 `prompts/CHATGPT_PROCESS2A_CLONE_REFERENCE.txt`,
 `prompts/CHATGPT_PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt`.
+
+## v5 studio additions (always use when available)
+
+- **`$ULTRA status --json`** — call it at the start of every turn in a long chat.
+  It reports the detected process (`extract-style|clone-reference|edit-in-style|
+  uninitialized`), completed stages, pending-asset count, draft/verify state and
+  the exact `nextCommand`. Never guess where you are; run status.
+- **`$ULTRA captions-align`** — word-level captions from `.srt` / `.vtt` /
+  word-JSON, or deterministic forced alignment from a plain script:
+  `$ULTRA captions-align --script script.txt --envelope workspace/raw-probe/audio-envelope.json --style <slug> --aspect 9:16 --out workspace/captions.json`.
+  `sourceClip` scenes ingest `workspace/captions.json` automatically for active-word
+  pill/underline/color captions.
+- **`--aspect 9:16|16:9|1:1`** — pass to `raw-probe` and `captions-align` and set
+  `meta.aspectProfile` in `ultra.json`. 9:16 reserves top 12%, bottom 22%, right
+  15%, left 5%; 16:9 a 6% perimeter; 1:1 8%. The linter fails captions/text that
+  enter those platform danger zones.
+- **Built-in Style Packs** — `punchy-shortform` (9:16), `kinetic-editorial` (16:9),
+  `dark-tech-launch` (16:9) ship in `styles/` with style.json, STYLE.md, 2 motifs
+  and 3 rendered exemplars. Use them immediately with `--style <slug>` and as
+  gold-standard references for Process 1.
+- **Bundled fonts** — `assets/fonts/UltraDisplay-Bold.ttf`, `UltraSans-Regular/
+  Bold.ttf`, `UltraMono-Regular.ttf` are offline OFL faces registered in every
+  renderer. Design tokens may name `Ultra Display` / `Ultra Sans` / `Ultra Mono`.
+- **Linux CI** — GitHub Actions runs every tier on `ubuntu-latest`; badge:
+  `https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg`.
 
 ## Process router — recognise the user's intent FIRST
 
@@ -86,16 +113,20 @@ downloaded packs in Qoder via `prompts/QODER_IMPORT_STYLE_TO_REPO.txt`
 
 ## Process 2B · EDIT MY VIDEO IN STYLE
 
-1. `$ULTRA style-list` → choose `--style <slug>`.
-2. `$ULTRA raw-probe my_video.mp4 --style <slug> --out workspace/raw-probe` →
+1. `$ULTRA status --json` → `$ULTRA style-list` → choose `--style <slug>`
+   (built-ins: `punchy-shortform`, `kinetic-editorial`, `dark-tech-launch`).
+2. `$ULTRA raw-probe my_video.mp4 --style <slug> --aspect 9:16 --out workspace/raw-probe` →
    inspect `raw-edit-plan.json` (silence/dead-air intervals, keepSegments,
    hookEnd, targetBodyAslSec, maxStaticHoldSec, punchInPoints, brollCutaways,
    captionWindows, chapter resets).
-3. Author `ultra.json` from the plan: `sourceClip: {path, inSec, outSec,
+3. Captions: if an SRT/VTT exists run `$ULTRA captions-align --srt file.srt --style <slug> --aspect 9:16 --out workspace/captions.json`;
+   otherwise `$ULTRA captions-align --script script.txt --envelope workspace/raw-probe/audio-envelope.json --style <slug> --aspect 9:16`.
+   Author `ultra.json` from the plan: `sourceClip: {path, inSec, outSec,
    jCutLeadSec, lCutTrailSec, scale, panX, panY, cropMode, muteSourceAudio}`
-   scenes render trimmed footage with camera punch-ins, styled word-highlighted
-   captions, motif/Revideo/3D overlays, the style's colorGrade + grain; only
-   transitions allowed by `style.transitions` (never `bannedTypes`).
+   scenes render trimmed footage with camera punch-ins, the active-word caption
+   track, motif/Revideo/3D overlays, the style's colorGrade + grain; set
+   `meta.aspectProfile`; only transitions allowed by `style.transitions`
+   (never `bannedTypes`).
 4. `$ULTRA validate-spec` → `asset-plan`/`validate-assets` (if overlays/music) →
    `$ULTRA build`.
 5. `$ULTRA verify --style <slug>`: quantitative gate (CFR, `stutterEvents === 0`,

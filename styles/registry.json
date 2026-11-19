@@ -1,4 +1,26 @@
 {
-  "updatedAt": "2026-11-19T00:00:00.000Z",
-  "styles": []
+  "updatedAt": "2026-11-19T14:06:37.140Z",
+  "styles": [
+    {
+      "slug": "dark-tech-launch",
+      "name": "Dark Tech Launch",
+      "version": "1.0.0",
+      "referenceCount": 1,
+      "installedAt": "2026-11-19T13:48:32.052Z"
+    },
+    {
+      "slug": "kinetic-editorial",
+      "name": "Kinetic Editorial",
+      "version": "1.0.0",
+      "referenceCount": 1,
+      "installedAt": "2026-11-19T13:48:32.052Z"
+    },
+    {
+      "slug": "punchy-shortform",
+      "name": "Punchy Shortform",
+      "version": "1.0.0",
+      "referenceCount": 1,
+      "installedAt": "2026-11-19T13:48:32.052Z"
+    }
+  ]
 }

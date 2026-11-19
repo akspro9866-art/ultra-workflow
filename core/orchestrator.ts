@@ -7,13 +7,14 @@ import { remotionEngine } from "../engines/remotion/index.js";
 import { revideoEngine } from "../engines/revideo/index.js";
 import { blenderEngine } from "../engines/blender/index.js";
 import { pyCanvasEngine } from "../engines/py-canvas/index.js";
-import { detectRenderTier } from "./env.js";
+import { ffmpegOnlyEngine } from "../engines/ffmpeg-only/index.js";
+import { detectRenderTier, type RenderTier } from "./env.js";
 import { sceneRenderDuration } from "./project.js";
 import { stitchTimeline, type StitchClip, type StitchResult } from "./stitcher.js";
 import { resolveAssetPath } from "./assets.js";
 import { ensureDir, pathExists, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
 
-export const CACHE_VERSION = 3;
+export const CACHE_VERSION = 4;
 
 export const ENGINES: Record<EngineKey, SceneEngine> = {
   hyperframes: hyperframesEngine,
@@ -21,6 +22,7 @@ export const ENGINES: Record<EngineKey, SceneEngine> = {
   revideo: revideoEngine,
   blender: blenderEngine,
   "py-canvas": pyCanvasEngine,
+  "ffmpeg-only": ffmpegOnlyEngine,
 };
 
 export interface EngineChoice {
@@ -28,26 +30,36 @@ export interface EngineChoice {
   fallback: boolean;
   reason?: string;
   browserless?: boolean;
+  tierFallback?: "browserless-py" | "ffmpeg-only";
 }
 
 /**
- * Route a scene by host tier: with a browser, the normal CDP engines run
- * unchanged; without one (ChatGPT container / ULTRA_NO_BROWSER=1), py-canvas
- * deterministically takes over hyperframes/revideo/blender/remotion scenes and
- * the build manifest records fallbackReason="browserless-py".
+ * Route a scene by host tier:
+ *  - full-cdp      → normal CDP engines (HyperFrames/Remotion/Revideo/Blender)
+ *  - browserless-py→ py-canvas (Pillow → raw frames → FFmpeg)
+ *  - ffmpeg-only   → pure FFmpeg drawtext/drawbox/zoompan renderer
  */
-export async function routeScene(scene: SceneSpecT, strictEngine: boolean, browserless: boolean): Promise<EngineChoice> {
-  if (browserless) {
+export async function routeScene(scene: SceneSpecT, strictEngine: boolean, tier: RenderTier): Promise<EngineChoice> {
+  if (tier === "browserless-py" || tier === "ffmpeg-only") {
     if (scene.customHtmlFile || scene.customCode) {
       throw new Error(
         `Scene "${scene.id}" uses custom HTML/code which requires a Chromium browser (full-cdp). ` +
           "Remove the custom scene or run where Chromium/Chrome/Edge is available.",
       );
     }
+    if (tier === "ffmpeg-only") {
+      return {
+        engine: ffmpegOnlyEngine,
+        fallback: true,
+        tierFallback: "ffmpeg-only",
+        reason: `ffmpeg-only · ${scene.engine} rendered by the pure FFmpeg fallback`,
+      };
+    }
     return {
       engine: pyCanvasEngine,
       fallback: true,
       browserless: true,
+      tierFallback: "browserless-py",
       reason: `browserless-py · ${scene.engine} rendered by py-canvas`,
     };
   }
@@ -170,11 +182,11 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
   let hits = 0;
   let misses = 0;
   const tierInfo = await detectRenderTier();
-  const browserless = tierInfo.tier !== "full-cdp";
+  const tier = tierInfo.tier;
 
   for (const scene of ordered) {
     const durationSec = round(sceneRenderDuration(project, scene), 6);
-    const choice = await routeScene(scene, Boolean(options.strictEngine), browserless);
+    const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
     const resolvedKey: EngineKey = choice.fallback ? (choice.engine.key as EngineKey) : (choice.engine.key as EngineKey);
     const key = await cacheKeyForScene(project, scene, workspace, resolvedKey);
     const ext = scene.alpha ? ".mov" : ".mp4";
@@ -206,7 +218,9 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
         engineUsed = outcome.engineUsed;
         notes.push(...outcome.notes);
       } catch (err) {
-        if (options.strictEngine || resolvedKey === "hyperframes" || resolvedKey === "py-canvas") throw err;
+        if (options.strictEngine || resolvedKey === "hyperframes" || resolvedKey === "py-canvas" || resolvedKey === "ffmpeg-only") {
+          throw err;
+        }
         // Render-time failure: store under the HyperFrames key so a later working
         // native engine is not masked by a stale fallback entry.
         const fallbackKey = await cacheKeyForScene(project, scene, workspace, "hyperframes");
@@ -234,7 +248,9 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
       requestedEngine: scene.engine,
       engineUsed,
       fallback,
-      ...(choice.browserless ? { fallbackReason: "browserless-py", browserless: true } : {}),
+      ...(choice.tierFallback
+        ? { fallbackReason: choice.tierFallback, browserless: choice.tierFallback === "browserless-py" }
+        : {}),
       cached,
       notes,
     });
@@ -286,9 +302,9 @@ export async function lintProject(options: BuildOptions): Promise<{
   const { project, workspace, buildDir } = options;
   const results: LintSceneResult[] = [];
   const tierInfo = await detectRenderTier();
-  const browserless = tierInfo.tier !== "full-cdp";
+  const tier = tierInfo.tier;
   for (const scene of [...project.scenes].sort((a, b) => a.startSec - b.startSec)) {
-    const choice = await routeScene(scene, Boolean(options.strictEngine), browserless);
+    const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
     const lint = await choice.engine.lint({
       project,
       scene,

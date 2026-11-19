@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-studio:
+    name: Linux studio (all render tiers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies (FFmpeg + Chromium + Pillow)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python -m pip install --upgrade pip
+          python -m pip install pillow numpy
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+            sudo apt-get install -y chromium-browser || sudo snap install chromium
+          fi
+          which ffmpeg ffprobe
+          (google-chrome --version || chromium --version || chromium-browser --version || true)
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Verify LF line endings (Linux script safety)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          targets = [
+              "dist/ultra",
+              "dist/run.sh",
+              "engines/blender/render_scene.py",
+              "engines/py-canvas/render_scene.py",
+          ]
+          bad = []
+          for name in targets:
+              p = Path(name)
+              if not p.exists():
+                  continue
+              if b"\r\n" in p.read_bytes():
+                  bad.append(name)
+          if bad:
+              print("CRLF found in:", ", ".join(bad))
+              sys.exit(1)
+          print("LF OK:", ", ".join(t for t in targets if Path(t).exists()))
+          PY
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Pack cloud bundle (fonts + styles + zero-API)
+        run: |
+          npm run pack:cloud
+          python - <<'PY'
+          import os, sys, zipfile
+          from pathlib import Path
+          zip_path = Path("dist/ultra-workflow-cloud.zip")
+          size = zip_path.stat().st_size
+          print("zip bytes:", size, f"({size/1024/1024:.2f} MiB)")
+          if size > 2.5 * 1024 * 1024:
+              sys.exit("cloud zip exceeds 2.5 MiB")
+          with zipfile.ZipFile(zip_path) as z:
+              z.testzip()
+              names = set(z.namelist())
+              required = {
+                  "ultra.mjs",
+                  "ultra",
+                  "run.sh",
+                  "engines/py-canvas/render_scene.py",
+                  "assets/fonts/UltraDisplay-Bold.ttf",
+                  "assets/fonts/UltraSans-Regular.ttf",
+                  "styles/punchy-shortform/style.json",
+                  "styles/kinetic-editorial/style.json",
+                  "styles/dark-tech-launch/style.json",
+              }
+              missing = sorted(required - names)
+              if missing:
+                  sys.exit("missing zip entries: " + ", ".join(missing))
+              for name in names:
+                  if name == "ultra" or name.endswith((".py", ".sh")):
+                      data = z.read(name)
+                      if b"\r\n" in data:
+                          sys.exit(f"CRLF inside zip entry: {name}")
+          print("zip integrity + LF + fonts/styles OK")
+          PY
+
+      - name: Validate built-in Style Packs
+        run: |
+          for d in styles/*/; do
+            node dist/ultra.mjs style-validate "$d"
+          done
+
+      - name: Test all 10 TypeScript suites + Python
+        run: npm test
+
+      - name: Zero-API / zero-secret security scan
+        run: |
+          python - <<'PY'
+          import re, sys
+          from pathlib import Path
+          forbidden = [
+              r"@google/genai", r"@google/generative-ai", r"openai", r"@anthropic-ai", r"anthropic",
+              r"elevenlabs", r"runwayml", r"replicate", r"stabilityai", r"@fal-ai", r"cohere-ai",
+          ]
+          roots = ["bin", "core", "engines", "verifier", "scripts"]
+          offenders = []
+          for root in roots:
+              for path in Path(root).rglob("*.ts"):
+                  if "node_modules" in path.parts:
+                      continue
+                  text = path.read_text(encoding="utf-8", errors="ignore")
+                  for pattern in forbidden:
+                      if re.search(pattern, text):
+                          offenders.append(f"{path}: {pattern}")
+          text = Path("dist/ultra.mjs").read_text(encoding="utf-8", errors="ignore")
+          for pattern in forbidden + [r"sk-[A-Za-z0-9]{16,}", r"gh[pousr]_[A-Za-z0-9]{20,}", r"BEGIN (RSA |OPENSSH )?PRIVATE KEY"]:
+              if re.search(pattern, text):
+                  offenders.append(f"dist/ultra.mjs: {pattern}")
+          if offenders:
+              print("security scan offenders:\\n" + "\\n".join(offenders))
+              sys.exit(1)
+          print("security scan clean — zero external AI SDKs / API keys")
+          PY
+
+      - name: Upload cloud bundle artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ultra-workflow-cloud
+          path: dist/ultra-workflow-cloud.zip
+          retention-days: 30
+          if-no-files-found: warn

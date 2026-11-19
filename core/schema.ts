@@ -195,6 +195,8 @@ export const SceneSpec = z
     camera: CameraRig.default({}),
     clipReveal: ClipRevealSpec.default({}),
     sourceClip: SourceClipSpec.optional(),
+    /** Optional workspace-relative captions JSON (default: workspace/captions.json on sourceClip scenes). */
+    captionsFile: z.string().optional(),
   })
   .superRefine((scene, ctx) => {
     if (scene.endSec <= scene.startSec) {
@@ -226,6 +228,16 @@ export const SceneSpec = z
           code: z.ZodIssueCode.custom,
           message: `scene "${scene.id}" customHtmlFile must be a relative path inside workspace/scenes/`,
           path: ["customHtmlFile"],
+        });
+      }
+    }
+    if (scene.captionsFile !== undefined) {
+      const file = scene.captionsFile;
+      if (file.trim().length === 0 || file.includes("..") || file.startsWith("/") || file.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(file)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `scene "${scene.id}" captionsFile must be a relative path inside the workspace`,
+          path: ["captionsFile"],
         });
       }
     }
@@ -309,6 +321,9 @@ export const AudioSpec = z.object({
     .default([]),
 });
 
+export const AspectProfile = z.enum(["9:16", "16:9", "1:1"]);
+export type AspectProfileT = z.infer<typeof AspectProfile>;
+
 export const MetaSpec = z.object({
   title: z.string().min(1),
   sourceVideoPath: z.string().min(1),
@@ -316,6 +331,8 @@ export const MetaSpec = z.object({
   height: z.number().int().positive(),
   fps: z.number().positive(),
   durationSec: z.number().positive(),
+  /** Optional platform aspect lock: enables social UI safe-zone linting. */
+  aspectProfile: AspectProfile.optional(),
 });
 
 export const UltraProject = z.object({
@@ -616,7 +633,19 @@ export const DoctorReport = z.object({
     mono: z.string().nullable(),
     count: z.number().int().min(0),
     directories: z.array(z.string()),
+    bundledFonts: z
+      .array(
+        z.object({
+          file: z.string(),
+          family: z.string(),
+          role: z.enum(["display", "regular", "bold", "mono"]),
+          path: z.string(),
+          bytes: z.number().int().min(0),
+        }),
+      )
+      .default([]),
   }),
+  forcedTier: z.enum(["full-cdp", "browserless-py", "ffmpeg-only"]).nullable().default(null),
   ffmpeg: z.object({ available: z.boolean(), version: z.string().nullable() }),
   ffprobe: z.object({ available: z.boolean(), version: z.string().nullable() }),
   browser: z.object({

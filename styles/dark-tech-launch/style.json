@@ -1,0 +1,112 @@
+{
+  "meta": {
+    "slug": "dark-tech-launch",
+    "name": "Dark Tech Launch",
+    "description": "16:9 Apple/Linear-inspired SaaS launch: obsidian surfaces, specular glow, 2.5D camera glides, beat-synced pulses and floating UI frames.",
+    "version": "1.0.0",
+    "createdAt": "2026-11-19T00:00:00.000Z",
+    "referenceCount": 1,
+    "sourceNotes": "Desk-designed product-launch pack; cinematic obsidian, mint/electric-blue accents and measured 2.5D camera motion."
+  },
+  "pacing": {
+    "hookWindowSec": 5,
+    "hookAslSec": [1.5, 2.5],
+    "bodyAslSec": [2.5, 4.5],
+    "outroAslSec": [2.5, 4.0],
+    "maxStaticHoldSec": 4.0,
+    "silenceTrimMs": 200,
+    "jCutMs": 80,
+    "lCutMs": 160,
+    "beatSnapRatioTarget": 0.55
+  },
+  "motion": {
+    "dominantEasing": "easeInOutCubic",
+    "secondaryEasings": ["easeOutExpo", "easeInOutSine"],
+    "punchInScaleRange": [1.0, 1.1],
+    "kenBurnsDriftScale": 0.6,
+    "motionBlurSamples": 2,
+    "shutterAngle": 180,
+    "cameraDriftAmplitude": 12
+  },
+  "typography": {
+    "displayFont": "Ultra Display",
+    "captionFont": "Ultra Sans",
+    "monoFont": "Ultra Mono",
+    "casing": "sentence",
+    "captionChunkWords": [3, 6],
+    "safeZoneYPercent": 82,
+    "activeWordHighlight": "color",
+    "strokePx": 0,
+    "shadowSpec": "0 0 34px rgba(124,245,199,0.28)"
+  },
+  "visualLayering": {
+    "aRollRatio": 0.5,
+    "bRollRatio": 0.18,
+    "motionGraphicRatio": 0.32,
+    "preferredEngines": ["hyperframes", "remotion", "blender", "revideo"],
+    "motifTriggers": [
+      {
+        "trigger": "hero",
+        "motifFile": "motifs/hero-reveal.html",
+        "description": "Specular hero reveal with a floating product frame and a version badge."
+      },
+      {
+        "trigger": "feature",
+        "motifFile": "motifs/feature-badge.html",
+        "description": "Beveled feature badge trio with 2.5D float and beat-synced glow."
+      }
+    ]
+  },
+  "colorAndTexture": {
+    "palette": {
+      "bg": "#07090d",
+      "surface": "#0e131c",
+      "textPrimary": "#f2f6ff",
+      "textMuted": "#8fa0b8",
+      "accent1": "#7cf5c7",
+      "accent2": "#4f7cff"
+    },
+    "grade": {
+      "exposure": 0.08,
+      "contrast": 0.16,
+      "saturation": 1.05,
+      "temperature": -0.08,
+      "vignette": 0.3
+    },
+    "grainOpacity": 0.03,
+    "halationOpacity": 0.18,
+    "halftoneOpacity": 0
+  },
+  "transitions": {
+    "mix": { "fade": 0.35, "cut": 0.35, "circleopen": 0.15, "slideup": 0.15 },
+    "durationFrames": [10, 24],
+    "bannedTypes": ["wipeleft", "wiperight"]
+  },
+  "soundDesign": {
+    "targetLufs": -14,
+    "musicDuckingDb": -12,
+    "musicBpmRange": [90, 124],
+    "eventToSfxMap": {
+      "hero": "riser",
+      "reveal": "whoosh",
+      "accent": "chime",
+      "stat": "pop",
+      "transition": "whoosh-fast"
+    }
+  },
+  "narrative": {
+    "hookPatterns": [
+      "One impossible claim, then the product",
+      "Feature reveal synced to the first beat",
+      "Contrast before/after in one frame"
+    ],
+    "chapterResetIntervalSec": 18,
+    "styleInvariants": [
+      "Hero frame keeps 30% negative space above the product",
+      "Camera glides are 2.5D, never orbit",
+      "Accent glow stays under 0.32 opacity",
+      "Every feature badge carries a mono spec label"
+    ],
+    "antiPatterns": ["Rainbow gradients", "Bouncing 3D logos", "Busy HUD clutter", "Fake benchmark charts without labels"]
+  }
+}

@@ -6,6 +6,7 @@ import type { LintContext, LintResult } from "../types.js";
 import { compileSceneHtml, paletteFor } from "./compiler.js";
 import { newPage, closePage, settlePage, waitForVideos } from "../../core/browser.js";
 import { ensureDir } from "../../core/util.js";
+import { resolveAspectProfile } from "../../core/safe-zones.js";
 
 const CRITICAL = new Set(["clip", "brokenMedia", "blankFrame", "palette"]);
 const AUDIT_FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
@@ -141,6 +142,28 @@ window.__ULTRA_AUDIT = function (params) {
     }
   });
 
+  function zoneHit(rect, zones) {
+    for (var zi = 0; zi < zones.length; zi += 1) {
+      var z = zones[zi];
+      var iw = Math.min(rect.right, z.x + z.width) - Math.max(rect.left, z.x);
+      var ih = Math.min(rect.bottom, z.y + z.height) - Math.max(rect.top, z.y);
+      if (iw > 1 && ih > 1 && iw * ih > 4) return z;
+    }
+    return null;
+  }
+  visible.forEach(function (box) {
+    var isCaption = box.el.getAttribute("data-caption") === "true";
+    var isText = box.el.getAttribute("data-audit") === "text";
+    if (!isCaption && !(params.enforceSafe && isText)) return;
+    var zone = zoneHit(box.rect, params.dangerZones || []);
+    if (zone) {
+      problems.push({
+        category: "layout",
+        detail: (isCaption ? "caption" : "text") + ' "' + box.uid + '" enters the ' + zone.label + " safe-zone"
+      });
+    }
+  });
+
   visible.forEach(function (box) {
     if (box.el.getAttribute("data-role") !== "shape") return;
     var s = getComputedStyle(box.el);
@@ -215,7 +238,21 @@ export async function lintScene(ctx: LintContext): Promise<LintResult> {
     await page.addScriptTag({ content: AUDIT_SCRIPT });
     await settlePage(page);
     await waitForVideos(page);
-    const auditArgs = JSON.stringify({ allowedPalette: palette, background: sceneBg });
+    const aspect = resolveAspectProfile(project.meta);
+    const dangerZones = aspect.zones.dangerZones.map((zone) => ({
+      id: zone.id,
+      label: `${aspect.aspect} ${zone.label}`,
+      x: zone.rect.x * width,
+      y: zone.rect.y * height,
+      width: zone.rect.width * width,
+      height: zone.rect.height * height,
+    }));
+    const auditArgs = JSON.stringify({
+      allowedPalette: palette,
+      background: sceneBg,
+      dangerZones,
+      enforceSafe: aspect.explicit,
+    });
     for (const frameIndex of frameIndices) {
       await page.evaluate(`window.__ULTRA_SEEK(${frameIndex}, ${fps})`);
       const raw = (await page.evaluate(`window.__ULTRA_AUDIT(${auditArgs})`)) as RawDefect[];

@@ -40,7 +40,7 @@ export async function applyPatch(
       throw new Error(`patch for "${scene.id}" cannot rename the scene id`);
     }
 
-    let resolvedEngine = tierInfo.tier !== "full-cdp" ? "py-canvas" : "hyperframes";
+    let resolvedEngine = tierInfo.tier === "ffmpeg-only" ? "ffmpeg-only" : tierInfo.tier === "browserless-py" ? "py-canvas" : "hyperframes";
     if (tierInfo.tier === "full-cdp") {
       try {
         const choice = await chooseEngine(scene, false);

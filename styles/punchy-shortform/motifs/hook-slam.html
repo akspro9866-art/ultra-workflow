@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hook Slam — punchy-shortform</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #151a23;
+    --text: #f7f5ef;
+    --muted: #9aa4b2;
+    --accent: #ffd447;
+    --alert: #ff5a5f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: 'Ultra Display', 'Ultra Sans', 'Arial Black', sans-serif; color: var(--text); }
+  .frame { position: absolute; inset: 0; padding: 7vh 6vw; }
+  .frame::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+    background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1.4px);
+    background-size: 7px 7px;
+  }
+  .kicker {
+    display: flex; align-items: center; gap: 1.4vw; justify-content: space-between;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.9vh; letter-spacing: 0.24em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .kicker .left { display: flex; align-items: center; gap: 1.4vw; }
+  .dot { width: 1.4vh; height: 1.4vh; border-radius: 50%; background: var(--alert); }
+  .title { position: absolute; left: 6vw; top: 31vh; width: 88vw; }
+  .line { display: block; font-weight: 700; font-size: 15.6vw; line-height: 0.9; letter-spacing: -0.035em; }
+  .line span { display: inline-block; }
+  .accent { color: var(--accent); }
+  .slash {
+    position: absolute; left: 6vw; top: 56vh; width: 24vw; height: 1.5vh;
+    background: var(--accent); transform-origin: left center; transform: skewX(-24deg) rotate(-3deg);
+  }
+  .note {
+    position: absolute; left: 6vw; top: 61vh; width: 64vw;
+    font-family: 'Ultra Sans', 'Segoe UI', sans-serif; font-size: 2.5vh; line-height: 1.4;
+    font-weight: 500; color: var(--muted); letter-spacing: 0.01em;
+  }
+  .count { color: var(--text); font-size: 3.2vh; letter-spacing: 0; }
+  .progress { position: absolute; left: 6vw; right: 6vw; bottom: 23vh; height: 0.55vh; background: rgba(255,255,255,0.1); }
+  .progress i { position: absolute; inset: 0; width: 0%; background: var(--accent); }
+  .glow {
+    position: absolute; right: -12vw; top: -16vh; width: 50vw; height: 50vw; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,212,71,0.16), transparent 64%);
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="glow"></div>
+    <div class="kicker"><span class="left"><span class="dot"></span>HOOK / 00:00</span><span class="count">01</span></div>
+    <div class="title">
+      <span class="line" id="l1"><span>STOP</span></span>
+      <span class="line accent" id="l2"><span>SCROLLING.</span></span>
+    </div>
+    <div class="slash" id="slash"></div>
+    <div class="note" id="note">The first 0.9 seconds decide if the rest exists.</div>
+    <div class="progress"><i id="bar"></i></div>
+  </div>
+  <script>
+    (function () {
+      function outExpo(t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * Math.max(0, Math.min(1, t))); }
+      function outBack(t) { var c1 = 1.70158, c3 = c1 + 1, p = Math.max(0, Math.min(1, t)) - 1; return 1 + c3 * p * p * p + c1 * p * p; }
+      var l1 = document.getElementById('l1');
+      var l2 = document.getElementById('l2');
+      var slash = document.getElementById('slash');
+      var note = document.getElementById('note');
+      var bar = document.getElementById('bar');
+      function apply(frame, fps) {
+        var t = frame / (fps || 30);
+        var p1 = outExpo(t / 0.36);
+        var p2 = outExpo((t - 0.14) / 0.42);
+        var p3 = outBack((t - 0.32) / 0.34);
+        l1.style.transform = 'translateY(' + (1 - p1) * 18 + 'vh)';
+        l1.style.opacity = String(p1);
+        l2.style.transform = 'translateY(' + (1 - p2) * 22 + 'vh) scale(' + (0.92 + 0.08 * p2) + ')';
+        l2.style.opacity = String(p2);
+        slash.style.transform = 'skewX(-24deg) rotate(-3deg) scaleX(' + p3 + ')';
+        slash.style.opacity = String(Math.max(0, Math.min(1, p3 * 3)));
+        note.style.opacity = String(outExpo((t - 0.55) / 0.4));
+        bar.style.width = Math.min(100, (t / 3) * 100) + '%';
+      }
+      window.__ULTRA_SEEK = function (frame, fps) { apply(frame, fps); return true; };
+      window.ultraRender = function (frame, fps) { apply(frame, fps); };
+      window.__ULTRA_SEEK(0, 30);
+    })();
+  </script>
+</body>
+</html>

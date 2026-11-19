@@ -10,3 +10,12 @@ Attached: my_video.mp4 (my raw footage). Ultra is zero-install, offline, zero-AP
 6. BUILD: `$ULTRA build` (sourceClip scenes render trimmed footage with punch-ins, captions, grade; audio follows J/L cuts; exact CFR).
 7. Rule 5 STYLE VERIFY: `$ULTRA verify --style <slug> --draft build/draft.mp4`. Requirements: quantitative pass (stutterEvents === 0, no black frames, LUFS within ±1.5 of the style target), style compliance all OK (ASL ranges, maxStaticHoldSec, banned transitions, palette distance), and a generated build/audit-frames/style-match.png. Inspect it natively and grade Style Match (0–100) against STYLE EXEMPLAR vs YOUR EDIT. Patch weak scenes via `$ULTRA patch` and repeat build+verify (max 3 rounds) until score ≥ 90.
 8. RENDER: `$ULTRA render`. Deliver build/ultra-final.mp4 + style compliance block + match score + patch history.
+
+V5 STUDIO COMMANDS (use these — do not guess state):
+- `status --json`: call at chat start and after every long step; returns detected process, completed stages, pending assets, draft/verify state and the exact `nextCommand`.
+- `captions-align --srt <file> | --vtt <file> | --words <file> | --script <file> --envelope <audio-envelope.json>` with `--style <slug> --aspect 9:16|16:9|1:1 --out workspace/captions.json`: word-level chunks, keyword flags and safeBox; sourceClip scenes ingest it automatically as active-word pill/underline/color captions.
+- `--aspect 9:16|16:9|1:1` also applies to `raw-probe` and `meta.aspectProfile`; 9:16 reserves top 12% / bottom 22% / right 15% / left 5%. Rule 5 lint flags captions or text inside platform danger zones.
+- Built-in Style Packs ready now: `punchy-shortform` (9:16), `kinetic-editorial` (16:9), `dark-tech-launch` (16:9). Use with `--style <slug>`; use their style.json/STYLE.md/motifs as gold-standard structure in Process 1.
+- Bundled offline fonts: Ultra Display / Ultra Sans / Ultra Mono (`assets/fonts/*.ttf`) — never download fonts.
+- `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
+- Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg

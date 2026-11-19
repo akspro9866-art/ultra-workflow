@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hero Reveal — dark-tech-launch</title>
+<style>
+  :root {
+    --bg: #07090d;
+    --surface: #0e131c;
+    --text: #f2f6ff;
+    --muted: #8fa0b8;
+    --mint: #7cf5c7;
+    --blue: #4f7cff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: 'Ultra Sans', 'Segoe UI', sans-serif; color: var(--text); }
+  .frame { position: absolute; inset: 0; padding: 7vh 7vw; }
+  .specular {
+    position: absolute; left: 34vw; top: -34vh; width: 80vw; height: 80vw; border-radius: 50%;
+    background: radial-gradient(circle, rgba(79,124,255,0.16), rgba(124,245,199,0.05) 42%, transparent 68%);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 1vw;
+    padding: 1vh 1.6vw; border: 1px solid rgba(124,245,199,0.38); border-radius: 999px;
+    background: rgba(14,19,28,0.72);
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.6vh; letter-spacing: 0.22em;
+    color: var(--mint); text-transform: uppercase;
+  }
+  .badge i { width: 0.8vh; height: 0.8vh; border-radius: 50%; background: var(--mint); box-shadow: 0 0 12px rgba(124,245,199,0.8); }
+  .title {
+    position: absolute; left: 7vw; top: 22vh; width: 56vw;
+    font-family: 'Ultra Display', 'Arial Black', sans-serif; font-weight: 700;
+    font-size: 8.2vw; line-height: 0.95; letter-spacing: -0.035em;
+  }
+  .title em { font-style: normal; color: var(--mint); }
+  .sub {
+    position: absolute; left: 7vw; top: 53vh; width: 38vw;
+    font-size: 2.7vh; line-height: 1.5; color: var(--muted);
+  }
+  .hairline {
+    position: absolute; left: 7vw; top: 63vh; width: 36vw; height: 1px;
+    background: linear-gradient(90deg, rgba(124,245,199,0.9), rgba(79,124,255,0.18), transparent);
+  }
+  .window {
+    position: absolute; right: 6vw; top: 20vh; width: 42vw; height: 30vw;
+    border-radius: 1.6vw; border: 1px solid rgba(143,160,184,0.2);
+    background: linear-gradient(160deg, rgba(20,28,40,0.92), rgba(9,12,18,0.96));
+    box-shadow: 0 4vh 12vh rgba(0,0,0,0.58), 0 0 8vh rgba(79,124,255,0.14);
+    transform: perspective(1400px) rotateY(-13deg) rotateX(4deg);
+    overflow: hidden;
+  }
+  .window .bar { height: 3.2vh; display: flex; gap: 0.6vw; align-items: center; padding: 0 1.2vw; border-bottom: 1px solid rgba(143,160,184,0.14); }
+  .window .bar i { width: 0.8vh; height: 0.8vh; border-radius: 50%; background: rgba(143,160,184,0.4); }
+  .rows { padding: 2.2vh 1.6vw; display: grid; gap: 1.2vh; }
+  .row { display: flex; justify-content: space-between; align-items: center; font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.7vh; color: var(--muted); }
+  .row b { color: var(--text); font-weight: 500; letter-spacing: 0.06em; }
+  .row .ok { color: var(--mint); }
+  .spark { height: 6vh; margin-top: 0.4vh; border-radius: 0.6vh; background:
+    repeating-linear-gradient(90deg, rgba(79,124,255,0.16) 0 2px, transparent 2px 12px); position: relative; overflow: hidden; }
+  .spark::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent, rgba(124,245,199,0.12)); }
+  .foot {
+    position: absolute; left: 7vw; right: 7vw; bottom: 7vh; display: flex; justify-content: space-between;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.5vh; letter-spacing: 0.2em;
+    color: var(--muted); text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="specular"></div>
+    <div class="badge" id="badge"><i></i>Ultra Core / V2</div>
+    <div class="title" id="title">Built for<br/><em>speed.</em></div>
+    <div class="sub" id="sub">Deterministic rendering, zero external APIs. The engine ships with the repo and runs anywhere.</div>
+    <div class="hairline" id="hairline"></div>
+    <div class="window" id="window">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <div class="rows">
+        <div class="row"><span>render.tier</span><b class="ok">full-cdp</b></div>
+        <div class="row"><span>stutter.events</span><b>0</b></div>
+        <div class="row"><span>loudness</span><b>−14 LUFS</b></div>
+        <div class="row"><span>api.deps</span><b>none</b></div>
+        <div class="spark"></div>
+      </div>
+    </div>
+    <div class="foot"><span>Dark Tech Launch</span><span>Hero / 01</span></div>
+  </div>
+  <script>
+    (function () {
+      function inOutCubic(t) { t = Math.max(0, Math.min(1, t)); return t < 0.5 ? 4 * t * t * t : 1 + 4 * Math.pow(t - 1, 3); }
+      function outExpo(t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * Math.max(0, Math.min(1, t))); }
+      var badge = document.getElementById('badge');
+      var title = document.getElementById('title');
+      var sub = document.getElementById('sub');
+      var hairline = document.getElementById('hairline');
+      var windowEl = document.getElementById('window');
+      function apply(frame, fps) {
+        var t = frame / (fps || 30);
+        badge.style.opacity = String(outExpo(t / 0.4));
+        badge.style.transform = 'translateY(' + (1 - outExpo(t / 0.4)) * 2 + 'vh)';
+        title.style.opacity = String(outExpo((t - 0.1) / 0.55));
+        title.style.transform = 'translateY(' + (1 - outExpo((t - 0.1) / 0.55)) * 5 + 'vh)';
+        sub.style.opacity = String(outExpo((t - 0.42) / 0.45) * 0.94);
+        var p = inOutCubic((t - 0.2) / 0.9);
+        windowEl.style.opacity = String(Math.min(1, p * 1.6));
+        windowEl.style.transform = 'perspective(1400px) rotateY(' + (-13 + 7 * p) + 'deg) rotateX(' + (4 - 2 * p) + 'deg) translateY(' + (1 - p) * 4 + 'vh)';
+        hairline.style.transform = 'scaleX(' + inOutCubic((t - 0.5) / 0.6) + ')';
+        hairline.style.transformOrigin = 'left center';
+      }
+      window.__ULTRA_SEEK = function (frame, fps) { apply(frame, fps); return true; };
+      window.ultraRender = function (frame, fps) { apply(frame, fps); };
+      window.__ULTRA_SEEK(0, 30);
+    })();
+  </script>
+</body>
+</html>

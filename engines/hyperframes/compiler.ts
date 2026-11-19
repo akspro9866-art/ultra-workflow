@@ -5,6 +5,8 @@ import type { SceneSpecT, UltraProjectT } from "../../core/schema.js";
 import { resolveAssetPath, resolveSourceClipPath } from "../../core/assets.js";
 import { buildChoreography } from "./choreo.js";
 import { fontStack, htmlEscape, normalizeHex, rgba } from "./style.js";
+import { discoverFonts } from "../../core/env.js";
+import { applyCasing, chunksInWindow, loadCaptionsForScene } from "../../core/captions.js";
 
 export { fontStack, normalizeHex } from "./style.js";
 
@@ -44,6 +46,55 @@ async function readTextFile(file: string, what: string): Promise<string> {
   } catch {
     throw new Error(`hyperframes: cannot read ${what} at ${file}`);
   }
+}
+
+/** Local @font-face rules: bundled OFL TTFs + workspace/assets/fonts overrides. */
+async function fontFaceCss(project: UltraProjectT, workspace: string): Promise<string> {
+  const discovered = await discoverFonts(workspace);
+  const byRole = (role: "display" | "regular" | "bold" | "mono") => discovered.bundled.find((f) => f.role === role)?.path ?? null;
+  const display = byRole("display");
+  const regular = byRole("regular");
+  const bold = byRole("bold") ?? display;
+  const mono = byRole("mono") ?? regular;
+  const faces: string[] = [];
+  const seen = new Set<string>();
+  const add = (family: string, file: string | null, weight: number) => {
+    if (!file) return;
+    const clean = family.replace(/['"]/g, "").trim();
+    if (clean.length === 0) return;
+    const key = `${clean}::${weight}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const format = path.extname(file).toLowerCase() === ".otf" ? "opentype" : "truetype";
+    faces.push(
+      `@font-face{font-family:'${clean}';src:url('${pathToFileURL(file).href}') format('${format}');font-weight:${weight};font-style:normal;font-display:block;}`,
+    );
+  };
+
+  add("Ultra Display", display, 700);
+  add("Ultra Sans", regular, 400);
+  add("Ultra Sans", bold, 700);
+  add("Ultra Mono", mono, 400);
+
+  // Design-token aliases (e.g. "Segoe UI" / "Inter" / "Space Grotesk") resolve to bundled faces.
+  add(project.designTokens.fonts.heading, display, 700);
+  add(project.designTokens.fonts.heading, regular, 400);
+  add(project.designTokens.fonts.body, regular, 400);
+  add(project.designTokens.fonts.body, bold, 700);
+  add(project.designTokens.fonts.mono, mono, 400);
+
+  // Workspace overrides (filename stem becomes the family name).
+  try {
+    const dir = path.join(workspace, "assets", "fonts");
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(ttf|otf)$/i.test(entry.name)) continue;
+      const family = entry.name.replace(/\.(ttf|otf)$/i, "");
+      add(family, path.join(dir, entry.name), /bold|black|heavy/i.test(family) ? 700 : 400);
+    }
+  } catch {
+    // no workspace overrides
+  }
+  return faces.join("\n");
 }
 
 function grainDataUri(): string {
@@ -234,7 +285,32 @@ const PAGE_RUNTIME = String.raw`
     }
   }
 
+  function applyCaptions(t) {
+    if (!DATA.captions || DATA.captions.length === 0) return;
+    var abs = DATA.sceneStartSec + t;
+    for (var i = 0; i < DATA.captions.length; i += 1) {
+      var cap = DATA.captions[i];
+      var el = document.querySelector('[data-caption-uid="' + cap.uid + '"]');
+      if (!el) continue;
+      var active = abs >= cap.startSec && abs < cap.endSec;
+      el.style.display = active ? "flex" : "none";
+      if (!active) continue;
+      var spans = el.querySelectorAll("[data-word-index]");
+      var activeWord = -1;
+      for (var w = 0; w < cap.words.length; w += 1) {
+        if (abs >= cap.words[w].startSec && abs < cap.words[w].endSec) { activeWord = w; break; }
+        if (abs >= cap.words[w].startSec) activeWord = w;
+      }
+      for (var s = 0; s < spans.length; s += 1) {
+        var idx = Number(spans[s].getAttribute("data-word-index"));
+        if (idx === activeWord) spans[s].classList.add("active");
+        else spans[s].classList.remove("active");
+      }
+    }
+  }
+
   function apply(t) {
+    applyCaptions(t);
     var anim = {};
     for (var i = 0; i < DATA.tracks.length; i += 1) {
       var track = DATA.tracks[i];
@@ -413,7 +489,7 @@ function injectIntoTemplateDocument(html: string, injection: { meta: string; bas
 }
 
 async function compileCustomSceneHtml(opts: CompileOptions): Promise<string> {
-  const { scene, workspace, width, height, fps } = opts;
+  const { scene, workspace, width, height, fps, project } = opts;
   const isFullDocument = (source: string) => /<html[\s>]/i.test(source) || /<body[\s>]/i.test(source);
 
   let source = "";
@@ -431,7 +507,8 @@ async function compileCustomSceneHtml(opts: CompileOptions): Promise<string> {
   const audio = await loadAudioEnvelope(workspace);
   const background = scene.background === "transparent" ? "transparent" : scene.background;
   const meta = `<meta charset="utf-8"/><meta name="viewport" content="width=${width}, height=${height}"/>`;
-  const baseCss = `<style id="ultra-base">html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:${background};}</style>`;
+  const fontFaces = await fontFaceCss(project, workspace);
+  const baseCss = `<style id="ultra-base">${fontFaces}html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:${background};}</style>`;
   const userCss = scene.customCode ? `<style id="ultra-user-css">${scene.customCode.css}</style>` : "";
   const prelude = `<script>${MOTION_PRELUDE}</script><script>window.__ULTRA_AUDIO = ${JSON.stringify(audio)};</script>`;
   const js = scene.customCode?.js ?? "";
@@ -457,6 +534,7 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
   }
 
   const tokens = project.designTokens;
+  const fontFaces = await fontFaceCss(project, workspace);
   const background =
     scene.background === "transparent" ? (scene.alpha ? "transparent" : "#000000") : scene.background;
 
@@ -607,6 +685,60 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
     );
   }
 
+  /* ---- word-level captions (workspace/captions.json on sourceClip scenes) ---- */
+  const captionsDoc = await loadCaptionsForScene(workspace, scene);
+  const captionHtml: string[] = [];
+  const captionData: Record<string, unknown>[] = [];
+  let captionCss = "";
+  if (captionsDoc) {
+    const palette = tokens.palette;
+    const paletteValues = Object.values(palette).map(normalizeHex);
+    const captionColor = normalizeHex(palette["textPrimary"] ?? palette["fg"] ?? palette["text"] ?? "#ffffff");
+    const bgColor = normalizeHex(palette["bg"] ?? paletteValues[0] ?? "#000000");
+    const accent = normalizeHex(
+      palette["accent"] ?? palette["accent1"] ?? paletteValues.find((c) => c !== bgColor && c !== captionColor) ?? captionColor,
+    );
+    const chunks = chunksInWindow(captionsDoc, scene.startSec, scene.endSec);
+    const fontPx = Math.max(18, Math.round(height * (height > width ? 0.045 : 0.05)));
+    const highlight = captionsDoc.typography.activeWordHighlight;
+    const casing = captionsDoc.typography.casing;
+    for (const chunk of chunks) {
+      const uid = `${scene.id}-${chunk.id}`.replace(/[^\w.-]/g, "_");
+      const wordsHtml = chunk.words
+        .map(
+          (word, wi) =>
+            `<span class="cw" data-word-index="${wi}">${htmlEscape(applyCasing(word.text, casing))}</span>`,
+        )
+        .join(" ");
+      captionHtml.push(
+        `<div class="ultra-caption" data-caption="true" data-caption-uid="${htmlEscape(uid)}" data-audit="text" data-uid="${htmlEscape(
+          uid,
+        )}" style="left:${chunk.safeBox.xPercent}%;top:${chunk.safeBox.yPercent}%;width:${chunk.safeBox.widthPercent}%;height:${chunk.safeBox.heightPercent}%;font-family:${fontStack(
+          captionsDoc.typography.captionFont,
+        )};font-size:${fontPx}px;color:${captionColor};${captionsDoc.typography.strokePx > 0 ? `-webkit-text-stroke:${captionsDoc.typography.strokePx}px ${bgColor};` : ""}display:none"><div class="ultra-caption-line">${wordsHtml}</div></div>`,
+      );
+      captionData.push({
+        uid,
+        startSec: chunk.startSec,
+        endSec: chunk.endSec,
+        words: chunk.words.map((w) => ({ startSec: w.startSec, endSec: w.endSec })),
+      });
+    }
+    captionCss = `
+  .ultra-captions { position:absolute; inset:0; z-index:600; pointer-events:none; }
+  .ultra-caption { position:absolute; align-items:flex-end; justify-content:center; text-align:center; font-weight:700; line-height:1.16; letter-spacing:0.02em; text-shadow:0 3px 16px rgba(0,0,0,0.72); }
+  .ultra-caption-line { display:flex; flex-wrap:wrap; justify-content:center; gap:0.16em 0.1em; }
+  .ultra-caption .cw { display:inline-block; padding:0 0.1em; border-radius:0.2em; }
+  .ultra-captions.hl-pill .cw.active { background:${accent}; color:${bgColor}; text-shadow:none; }
+  .ultra-captions.hl-color .cw.active { color:${accent}; }
+  .ultra-captions.hl-scale .cw.active { color:${accent}; transform:scale(1.14); }
+  .ultra-captions.hl-underline .cw.active { color:${accent}; border-bottom:0.08em solid ${accent}; }`;
+    if (captionHtml.length > 0) {
+      captionHtml.unshift(`<div class="ultra-captions hl-${highlight}">`);
+      captionHtml.push("</div>");
+    }
+  }
+
   const choreo = scene.engine === "revideo" ? buildChoreography({ project, scene, width, height }) : null;
 
   const fxHtml: string[] = [];
@@ -654,6 +786,8 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
       scene.clipReveal && scene.clipReveal.type !== "none"
         ? { type: scene.clipReveal.type, durationSec: scene.clipReveal.durationSec, delaySec: scene.clipReveal.delaySec }
         : null,
+    sceneStartSec: scene.startSec,
+    captions: captionData,
   };
   const dataJson = JSON.stringify(data).replace(/</g, "\\u003c");
   const contentBlur = blurEffect ? `filter:blur(${(blurEffect.intensity * 6).toFixed(2)}px);` : "";
@@ -663,6 +797,7 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
 <html><head><meta charset="utf-8"/>
 <title>${htmlEscape(scene.name)}</title>
 <style>
+  ${fontFaces}
   html, body { margin:0; padding:0; width:${width}px; height:${height}px; overflow:hidden; background:${background}; }
   * { box-sizing:border-box; }
   #stage { position:absolute; inset:0; width:${width}px; height:${height}px; overflow:hidden; background:${background}; }
@@ -677,6 +812,7 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
   .fx-grain { background-repeat:repeat; background-size:240px 240px; z-index:900; }
   .fx-halftone { z-index:880; }
   .fx-vignette { z-index:890; }
+  ${captionCss}
 </style></head>
 <body>
   <div id="stage">
@@ -686,6 +822,7 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
       ${layerHtml.join("\n      ")}
       ${choreo ? choreo.html : ""}
       ${textHtml.join("\n      ")}
+      ${captionHtml.join("\n      ")}
       ${fxHtml.join("\n      ")}
       </div>
     </div>

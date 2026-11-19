@@ -7,7 +7,7 @@ import { createZip } from "../core/zip.js";
 
 const CLOUD_PACKAGE = {
   name: "ultra-workflow",
-  version: "3.0.0",
+  version: "5.0.0",
   private: true,
   type: "module",
   description: "Zero-API, zero-install deterministic video recreation + style-pack workflow for agent chat sandboxes.",
@@ -20,6 +20,32 @@ exec node "$(dirname "$0")/ultra.mjs" "$@"
 const LAUNCHER_CMD = `@echo off\r
 node "%~dp0ultra.mjs" %*\r
 `;
+
+const TEXT_EXTENSIONS = new Set([".mjs", ".js", ".ts", ".py", ".sh", ".md", ".json", ".txt", ".html", ".css", ".yml", ".yaml", ".cmd"]);
+
+/** Cloud scripts must be LF-only: Windows CRLF has broken Linux shebangs before. */
+async function normalizeLf(stage: string): Promise<number> {
+  let changed = 0;
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      const ext = path.extname(entry.name).toLowerCase();
+      const isLauncher = entry.name === "ultra" || entry.name === "run.sh";
+      if (!TEXT_EXTENSIONS.has(ext) && !isLauncher) continue;
+      const raw = await fs.readFile(full);
+      if (raw.includes(0x0d)) {
+        await fs.writeFile(full, raw.toString("utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n"), "utf8");
+        changed += 1;
+      }
+    }
+  };
+  await walk(stage);
+  return changed;
+}
 
 async function bundleCli(root: string, dist: string): Promise<number> {
   await esbuild({
@@ -72,6 +98,8 @@ async function main(): Promise<void> {
   // Keep clone-and-run launchers next to the bundle at the dist root (tracked in git).
   await fs.writeFile(path.join(dist, "ultra"), LAUNCHER_SH, "utf8");
   await fs.chmod(path.join(dist, "ultra"), 0o755);
+  await fs.writeFile(path.join(dist, "run.sh"), LAUNCHER_SH, "utf8");
+  await fs.chmod(path.join(dist, "run.sh"), 0o755);
   await fs.writeFile(path.join(dist, "ultra.cmd"), LAUNCHER_CMD, "utf8");
 
   const stage = path.join(dist, "pack-cloud");
@@ -82,6 +110,10 @@ async function main(): Promise<void> {
   await writeJsonAtomic(path.join(stage, "package.json"), CLOUD_PACKAGE);
 
   let vendorCount = await copyDir(path.join(root, "assets", "vendor"), path.join(stage, "assets", "vendor"));
+  let fontCount = 0;
+  if (await pathExists(path.join(root, "assets", "fonts"))) {
+    fontCount = await copyDir(path.join(root, "assets", "fonts"), path.join(stage, "assets", "fonts"));
+  }
 
   await ensureDir(path.join(stage, "engines", "blender"));
   await fs.copyFile(
@@ -113,7 +145,11 @@ async function main(): Promise<void> {
 
   await fs.copyFile(path.join(dist, "ultra"), path.join(stage, "ultra"));
   await fs.chmod(path.join(stage, "ultra"), 0o755);
+  await fs.copyFile(path.join(dist, "run.sh"), path.join(stage, "run.sh"));
+  await fs.chmod(path.join(stage, "run.sh"), 0o755);
   await fs.copyFile(path.join(dist, "ultra.cmd"), path.join(stage, "ultra.cmd"));
+
+  const normalized = await normalizeLf(stage);
 
   const zipPath = path.join(dist, "ultra-workflow-cloud.zip");
   const files: { name: string; source: string; mode?: number }[] = [];
@@ -123,7 +159,7 @@ async function main(): Promise<void> {
       if (entry.isDirectory()) await collect(full);
       else {
         const rel = path.relative(stage, full).split(path.sep).join("/");
-        files.push({ name: rel, source: full, ...(rel === "ultra" ? { mode: 0o755 } : {}) });
+        files.push({ name: rel, source: full, ...(rel === "ultra" || rel === "run.sh" ? { mode: 0o755 } : {}) });
       }
     }
   };
@@ -131,20 +167,20 @@ async function main(): Promise<void> {
   const zip = await createZip(files, zipPath);
 
   const zipMiB = zip.bytes / (1024 * 1024);
-  if (zipMiB > 10) {
-    throw new Error(`cloud zip exceeds the 10 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
+  if (zipMiB > 2.2) {
+    throw new Error(`cloud zip exceeds the 2.2 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
   }
-  if (zipMiB > 1) {
-    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v4 target is well under 1 MiB)`);
+  if (zipMiB > 1.6) {
+    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v5 target is <= 2.2 MiB)`);
   }
   await rmrf(stage);
 
   console.log(`pack:cloud → ${zipPath}`);
   console.log(
-    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · styles ${styleCount} · prompts ${promptCount} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
+    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · fonts ${fontCount} · styles ${styleCount} · prompts ${promptCount} · LF-normalized ${normalized} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
   );
   console.log(
-    `  contents: ultra.mjs, ultra, ultra.cmd, package.json, assets/vendor/, styles/ (+registry), prompts/, engines/blender+py-canvas scripts, docs`,
+    `  contents: ultra.mjs, ultra, run.sh, ultra.cmd, package.json, assets/vendor/, assets/fonts/ (Ultra Display/Sans/Mono), styles/, prompts/, engines/blender+py-canvas scripts, docs`,
   );
 }
 

@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Feature Badge — dark-tech-launch</title>
+<style>
+  :root {
+    --bg: #07090d;
+    --surface: #0e131c;
+    --text: #f2f6ff;
+    --muted: #8fa0b8;
+    --mint: #7cf5c7;
+    --blue: #4f7cff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: 'Ultra Sans', 'Segoe UI', sans-serif; color: var(--text); }
+  .frame { position: absolute; inset: 0; padding: 8vh 7vw; }
+  .glow {
+    position: absolute; left: 10vw; top: 18vh; width: 80vw; height: 50vh; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(79,124,255,0.14), transparent 66%);
+  }
+  .kicker {
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.7vh; letter-spacing: 0.22em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .headline {
+    margin-top: 2vh; font-family: 'Ultra Display', 'Arial Black', sans-serif; font-weight: 700;
+    font-size: 4.6vw; line-height: 1; letter-spacing: -0.02em;
+  }
+  .headline span { color: var(--mint); }
+  .cards { position: absolute; left: 7vw; right: 7vw; top: 42vh; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2vw; }
+  .card {
+    height: 34vh; padding: 3vh 2vw; border-radius: 1.2vw;
+    border: 1px solid rgba(143,160,184,0.18);
+    background: linear-gradient(170deg, rgba(20,28,40,0.9), rgba(9,12,18,0.95));
+    box-shadow: 0 2vh 6vh rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+    transform-style: preserve-3d;
+  }
+  .card .icon {
+    width: 5.4vh; height: 5.4vh; border-radius: 1vh; display: flex; align-items: center; justify-content: center;
+    background: rgba(124,245,199,0.08); border: 1px solid rgba(124,245,199,0.28);
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 2vh; color: var(--mint);
+  }
+  .card h3 { margin: 2.4vh 0 0.8vh; font-size: 2.4vh; font-weight: 600; letter-spacing: 0.01em; }
+  .card p { margin: 0; font-size: 1.8vh; line-height: 1.5; color: var(--muted); }
+  .card .spec {
+    position: absolute; bottom: 3vh; font-family: 'Ultra Mono', 'Consolas', monospace;
+    font-size: 1.3vh; letter-spacing: 0.16em; color: var(--blue); text-transform: uppercase;
+  }
+  .card { position: relative; }
+  .foot {
+    position: absolute; left: 7vw; right: 7vw; bottom: 7vh; display: flex; justify-content: space-between;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.5vh; letter-spacing: 0.2em;
+    color: var(--muted); text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="glow"></div>
+    <div class="kicker">Feature stack / three guarantees</div>
+    <div class="headline">Fast to ship.<br/><span>Impossible to drift.</span></div>
+    <div class="cards">
+      <div class="card" id="card1">
+        <div class="icon">01</div>
+        <h3>Realtime</h3>
+        <p>Scene routing picks the strongest engine that the host can actually run.</p>
+        <span class="spec">routing / auto</span>
+      </div>
+      <div class="card" id="card2">
+        <div class="icon">02</div>
+        <h3>Deterministic</h3>
+        <p>Every frame is seeked by index. Identical bytes on every machine, every run.</p>
+        <span class="spec">stutter / 0</span>
+      </div>
+      <div class="card" id="card3">
+        <div class="icon">03</div>
+        <h3>Zero cloud</h3>
+        <p>No API keys, no external AI calls. Fonts, audio and motion ship with the repo.</p>
+        <span class="spec">api deps / none</span>
+      </div>
+    </div>
+    <div class="foot"><span>Dark Tech Launch</span><span>Feature / 02</span></div>
+  </div>
+  <script>
+    (function () {
+      function outExpo(t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * Math.max(0, Math.min(1, t))); }
+      function inOutCubic(t) { t = Math.max(0, Math.min(1, t)); return t < 0.5 ? 4 * t * t * t : 1 + 4 * Math.pow(t - 1, 3); }
+      var cards = [document.getElementById('card1'), document.getElementById('card2'), document.getElementById('card3')];
+      function apply(frame, fps) {
+        var t = frame / (fps || 30);
+        cards.forEach(function (card, i) {
+          var p = outExpo((t - 0.18 - i * 0.14) / 0.55);
+          card.style.opacity = String(p);
+          card.style.transform = 'translateY(' + (1 - p) * 5 + 'vh) rotateY(' + (1 - p) * 6 + 'deg)';
+        });
+        var lift = Math.sin(inOutCubic(t / 1.6) * Math.PI) * 0.6;
+        cards[1].style.marginTop = (-lift * 2) + 'vh';
+        cards[0].style.marginTop = (lift * 1.2) + 'vh';
+      }
+      window.__ULTRA_SEEK = function (frame, fps) { apply(frame, fps); return true; };
+      window.ultraRender = function (frame, fps) { apply(frame, fps); };
+      window.__ULTRA_SEEK(0, 30);
+    })();
+  </script>
+</body>
+</html>

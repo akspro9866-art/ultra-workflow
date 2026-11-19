@@ -1,0 +1,112 @@
+{
+  "meta": {
+    "slug": "punchy-shortform",
+    "name": "Punchy Shortform",
+    "description": "9:16 retention-first shortform: sub-2s hooks, punch-in zooms, active-word pill captions and hard-cut sound design.",
+    "version": "1.0.0",
+    "createdAt": "2026-11-19T00:00:00.000Z",
+    "referenceCount": 1,
+    "sourceNotes": "Desk-designed flagship vertical retention pack, calibrated to hook-first TikTok/Reels/Shorts editing grammar."
+  },
+  "pacing": {
+    "hookWindowSec": 3,
+    "hookAslSec": [0.9, 1.6],
+    "bodyAslSec": [1.6, 2.8],
+    "outroAslSec": [1.8, 3.0],
+    "maxStaticHoldSec": 2.8,
+    "silenceTrimMs": 160,
+    "jCutMs": 120,
+    "lCutMs": 180,
+    "beatSnapRatioTarget": 0.65
+  },
+  "motion": {
+    "dominantEasing": "easeOutExpo",
+    "secondaryEasings": ["easeOutBack", "easeInOutSine"],
+    "punchInScaleRange": [1.0, 1.14],
+    "kenBurnsDriftScale": 0.5,
+    "motionBlurSamples": 4,
+    "shutterAngle": 180,
+    "cameraDriftAmplitude": 18
+  },
+  "typography": {
+    "displayFont": "Ultra Display",
+    "captionFont": "Ultra Sans",
+    "monoFont": "Ultra Mono",
+    "casing": "upper",
+    "captionChunkWords": [2, 4],
+    "safeZoneYPercent": 74,
+    "activeWordHighlight": "pill",
+    "strokePx": 0,
+    "shadowSpec": "0 3px 16px rgba(0,0,0,0.72)"
+  },
+  "visualLayering": {
+    "aRollRatio": 0.58,
+    "bRollRatio": 0.28,
+    "motionGraphicRatio": 0.14,
+    "preferredEngines": ["hyperframes", "revideo", "blender"],
+    "motifTriggers": [
+      {
+        "trigger": "hook",
+        "motifFile": "motifs/hook-slam.html",
+        "description": "Oversized two-line hook slam with an accent slash and mono kicker."
+      },
+      {
+        "trigger": "stat",
+        "motifFile": "motifs/stat-pill.html",
+        "description": "Number-forward stat card with an accent pill and retention-focused label."
+      }
+    ]
+  },
+  "colorAndTexture": {
+    "palette": {
+      "bg": "#0b0d12",
+      "surface": "#151a23",
+      "textPrimary": "#f7f5ef",
+      "textMuted": "#9aa4b2",
+      "accent1": "#ffd447",
+      "accent2": "#ff5a5f"
+    },
+    "grade": {
+      "exposure": 0.05,
+      "contrast": 0.12,
+      "saturation": 1.12,
+      "temperature": 0.05,
+      "vignette": 0.18
+    },
+    "grainOpacity": 0.045,
+    "halationOpacity": 0.12,
+    "halftoneOpacity": 0
+  },
+  "transitions": {
+    "mix": { "cut": 0.55, "slideup": 0.2, "circleopen": 0.15, "fade": 0.1 },
+    "durationFrames": [3, 10],
+    "bannedTypes": ["wipeleft", "wiperight"]
+  },
+  "soundDesign": {
+    "targetLufs": -14,
+    "musicDuckingDb": -11,
+    "musicBpmRange": [110, 150],
+    "eventToSfxMap": {
+      "hook": "sub-hit",
+      "transition": "whoosh-fast",
+      "pop": "pop",
+      "stat": "sub-hit",
+      "accent": "ui-click"
+    }
+  },
+  "narrative": {
+    "hookPatterns": [
+      "Blunt claim in the first 0.9s",
+      "Number + consequence hook",
+      "Pattern interrupt before the scroll reflex"
+    ],
+    "chapterResetIntervalSec": 6,
+    "styleInvariants": [
+      "Every hook lands before 1.6s with a visible scale punch",
+      "Active-word pill moves with the read-along cadence",
+      "Hard cuts on the beat; no floaty dissolves",
+      "Captions stay above the bottom 22% platform UI zone"
+    ],
+    "antiPatterns": ["Slow logo stings", "Static talking head over 2.8s", "Decorative gradient washes", "Caption text under the TikTok rail"]
+  }
+}

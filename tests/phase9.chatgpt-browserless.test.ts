@@ -147,7 +147,7 @@ describe("phase 9 — ChatGPT browserless container (zero browser, zero install)
 
     const zipPath = path.join(ROOT, "dist", "ultra-workflow-cloud.zip");
     const zipStat = await fs.stat(zipPath);
-    expect(zipStat.size).toBeLessThan(1024 * 1024); // well under 1 MiB
+    expect(zipStat.size).toBeLessThan(2.2 * 1024 * 1024); // v5 budget: bundled fonts + 3 style packs
     const isolated = await fs.mkdtemp(path.join(os.tmpdir(), "ultra-chatgpt-"));
     const { entries } = await extractZip(zipPath, isolated);
     expect(entries.every((e) => e.crcOk)).toBe(true);

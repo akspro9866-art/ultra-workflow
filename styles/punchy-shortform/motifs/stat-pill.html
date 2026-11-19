@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stat Pill — punchy-shortform</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #151a23;
+    --text: #f7f5ef;
+    --muted: #9aa4b2;
+    --accent: #ffd447;
+    --alert: #ff5a5f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: 'Ultra Display', 'Ultra Sans', 'Arial Black', sans-serif; color: var(--text); }
+  .frame { position: absolute; inset: 0; padding: 8vh 7vw; }
+  .label {
+    display: inline-flex; align-items: center; gap: 1.2vw; padding: 1.2vh 2.4vw;
+    border: 1px solid rgba(255,212,71,0.55); border-radius: 999px;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.8vh; letter-spacing: 0.24em;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .label i { width: 0.9vh; height: 0.9vh; border-radius: 50%; background: var(--accent); }
+  .number {
+    position: absolute; left: 6vw; top: 29vh;
+    font-weight: 700; font-size: 31vw; line-height: 0.82; letter-spacing: -0.05em;
+  }
+  .number small { font-size: 0.38em; letter-spacing: -0.02em; color: var(--accent); vertical-align: 0.75em; margin-left: 0.06em; }
+  .rule { position: absolute; left: 7vw; right: 7vw; top: 60vh; height: 1px; background: rgba(247,245,239,0.2); }
+  .caption { position: absolute; left: 7vw; top: 57vh; width: 70vw; }
+  .caption strong {
+    display: block; font-weight: 700; font-size: 4.6vh; line-height: 1.02; letter-spacing: -0.01em; text-transform: uppercase;
+  }
+  .caption em {
+    display: inline-block; margin-top: 1vh; padding: 0.4vh 1.2vw; border-radius: 0.5vh;
+    background: var(--accent); color: var(--bg); font-style: normal; font-size: 2.3vh;
+    font-family: 'Ultra Mono', 'Consolas', monospace; letter-spacing: 0.14em;
+  }
+  .caption p {
+    margin: 1.6vh 0 0; font-family: 'Ultra Sans', 'Segoe UI', sans-serif; font-weight: 400;
+    font-size: 2vh; line-height: 1.35; color: var(--muted);
+  }
+  .time {
+    position: absolute; right: 7vw; top: 9.2vh;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.7vh; letter-spacing: 0.2em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .ring {
+    position: absolute; right: -18vw; bottom: 18vh; width: 62vw; height: 62vw; border-radius: 50%;
+    border: 1px solid rgba(255,212,71,0.22);
+  }
+  .ring::after {
+    content: ""; position: absolute; inset: 6vw; border-radius: 50%; border: 1px solid rgba(255,90,95,0.18);
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="ring"></div>
+    <div class="label" id="label"><i></i>Data / 01</div>
+    <div class="time">00:03 / 00:12</div>
+    <div class="number" id="number">3.2<small>×</small></div>
+    <div class="rule" id="rule"></div>
+    <div class="caption">
+      <strong id="title">Faster<br/>Retention</strong>
+      <em id="pill">Hook under 1.6s</em>
+      <p id="body">Same footage, tighter cadence. The number is the hook; the pill is the proof.</p>
+    </div>
+  </div>
+  <script>
+    (function () {
+      function outExpo(t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * Math.max(0, Math.min(1, t))); }
+      function outBack(t) { var c1 = 1.70158, c3 = c1 + 1, p = Math.max(0, Math.min(1, t)) - 1; return 1 + c3 * p * p * p + c1 * p * p; }
+      var number = document.getElementById('number');
+      var label = document.getElementById('label');
+      var rule = document.getElementById('rule');
+      var title = document.getElementById('title');
+      var pill = document.getElementById('pill');
+      var body = document.getElementById('body');
+      function apply(frame, fps) {
+        var t = frame / (fps || 30);
+        var p1 = outExpo(t / 0.4);
+        var p2 = outBack((t - 0.18) / 0.4);
+        number.style.opacity = String(p1);
+        number.style.transform = 'translateY(' + (1 - p1) * 8 + 'vh) scale(' + (0.86 + 0.14 * p2) + ')';
+        label.style.opacity = String(outExpo((t - 0.05) / 0.3));
+        rule.style.transform = 'scaleX(' + outExpo((t - 0.3) / 0.45) + ')';
+        rule.style.transformOrigin = 'left center';
+        title.style.opacity = String(outExpo((t - 0.38) / 0.35));
+        pill.style.opacity = String(outExpo((t - 0.58) / 0.3));
+        pill.style.transform = 'translateY(' + (1 - outExpo((t - 0.58) / 0.3)) * 2 + 'vh)';
+        body.style.opacity = String(outExpo((t - 0.72) / 0.4) * 0.9);
+      }
+      window.__ULTRA_SEEK = function (frame, fps) { apply(frame, fps); return true; };
+      window.ultraRender = function (frame, fps) { apply(frame, fps); };
+      window.__ULTRA_SEEK(0, 30);
+    })();
+  </script>
+</body>
+</html>

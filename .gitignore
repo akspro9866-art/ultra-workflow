@@ -12,5 +12,6 @@ __pycache__/
 dist/*
 !dist/ultra.mjs
 !dist/ultra
+!dist/run.sh
 !dist/ultra.cmd
 !dist/ultra-workflow-cloud.zip

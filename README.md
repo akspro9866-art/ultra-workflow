@@ -1,5 +1,7 @@
 # Ultra Workflow
 
+[![CI](https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml)
+
 Zero-API, **zero-install** deterministic video compiler for agent chat sandboxes.
 The chat agent is the multimodal brain; Ultra is the engine — no AI SDKs, no API
 keys, no internet required inside Gemini/Muse VMs.
@@ -23,6 +25,7 @@ node ultra-workflow/dist/ultra.mjs validate-spec && node ultra-workflow/dist/ult
 node ultra-workflow/dist/ultra.mjs validate-assets && node ultra-workflow/dist/ultra.mjs build
 node ultra-workflow/dist/ultra.mjs verify reference.mp4   # stutterEvents must be 0
 node ultra-workflow/dist/ultra.mjs render                 # build/ultra-final.mp4
+node ultra-workflow/dist/ultra.mjs status --json          # process + stages + exact nextCommand
 ```
 
 Fallback — no GitHub access: attach `ultra-workflow-cloud.zip`, then
@@ -79,7 +82,7 @@ Ready-to-paste ChatGPT prompts: `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.txt`,
 |---|---|---|
 | `full-cdp` | Chromium/Chrome/Edge available | HyperFrames + Three.js + optional Remotion/Revideo + CDP screenshots (phases 1–8 unchanged) |
 | `browserless-py` | no browser (or `ULTRA_NO_BROWSER=1`) with Python 3 + Pillow + FFmpeg — standard ChatGPT container | `engines/py-canvas` renders deterministically with Pillow (easing, reveals, captions, sourceClip, chart/counter vectors, image Ken Burns, seeded grain, blender wireframe fallback) and pipes raw frames into FFmpeg; DOM lint becomes a Python layout linter; audit pairs compose via FFmpeg (no Chromium at all) |
-| `ffmpeg-only` | neither browser nor Pillow | reduced py-canvas FFmpeg filtergraph fallback for text/background scenes |
+| `ffmpeg-only` | neither browser nor Pillow, or `ULTRA_FORCE_TIER=ffmpeg-only` | dedicated pure-FFmpeg engine (`engines/ffmpeg-only`): drawtext with bundled TTFs, drawbox, zoompan punch-ins, sourceClip trims, noise grain, color grade → valid CFR `yuv420p`/ProRes alpha; live-tested in phase10 |
 
 In browserless ChatGPT containers use native **Image Generation** for stills and
 B-roll keyframes (`asset-plan --host chatgpt` flags them
@@ -94,6 +97,46 @@ Presets — SFX: `whoosh`, `whoosh-fast`, `sub-hit`, `riser`, `pop`, `ui-click`,
 `glitch-zap`, `shutter`, `swoosh-reverse`, `chime`; music: `beat-pulse`,
 `ambient-tech`, `minimal-tension`. Output is 48 kHz 16-bit stereo WAV with
 soft-clipped, dither-added broadcast levels.
+
+## v5 — Linux-hardened studio edition
+
+- **Bundled offline typography** — four SIL OFL TTFs in `assets/fonts/`
+  (`UltraDisplay-Bold`, `UltraSans-Regular/Bold`, `UltraMono-Regular`, 159 KiB total)
+  register as local `@font-face` rules in HyperFrames, default fonts in py-canvas and
+  `drawtext=fontfile=` in the FFmpeg-only engine. `doctor --json` lists
+  `fonts.bundledFonts[]`. Source generator: `python scripts/make-bundled-fonts.py`.
+- **Word-level captions** — `ultra captions-align --out workspace/captions.json`
+  parses `.srt`, `.vtt`, word-JSON, or performs deterministic speech-burst forced
+  alignment from `--script` + `audio-envelope.json`. Chunks follow the Style Pack's
+  `captionChunkWords`, flag numeric/emphasis keywords, and carry `safeBox` coordinates.
+  `sourceClip` scenes ingest `workspace/captions.json` directly (active-word pill /
+  underline / color) in HyperFrames, py-canvas and the FFmpeg-only tier.
+- **Platform safe zones** — `--aspect 9:16|16:9|1:1` on `raw-probe` / `captions-align`
+  and optional `meta.aspectProfile` in `ultra.json`. 9:16 reserves top 12%, bottom 22%,
+  right 15%, left 5%; 16:9 uses a 6% title-safe perimeter; 1:1 uses 8%. The
+  HyperFrames DOM linter and the py-canvas linter emit structured `layout` defects
+  when captions/text enter a platform danger zone.
+- **`ultra status [--json]`** — detects `extract-style` / `clone-reference` /
+  `edit-in-style` / `uninitialized`, lists completed stages vs missing prerequisites
+  and prints the exact `nextCommand` so long multi-turn cloud chats never lose place.
+- **Forced tier testing** — `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only`
+  in `doctor` and the orchestrator; the new phase10 suite proves the FFmpeg-only tier
+  end-to-end with zero Chromium and zero Python rendering.
+- **Three built-in Style Packs** ready for `--style` immediately:
+  `punchy-shortform` (9:16), `kinetic-editorial` (16:9), `dark-tech-launch` (16:9).
+  Each ships `style.json`, `STYLE.md`, 2 bespoke deterministic motifs and 3 exemplar
+  PNGs rendered through Ultra Workflow itself (640px wide).
+- **GitHub Actions CI on `ubuntu-latest`** — LF guard, typecheck, cloud pack + zip
+  integrity/size, all Style Packs, all 10 TS suites + Python, zero-API scan, and the
+  cloud zip uploaded as a downloadable artifact (30 days).
+
+```bash
+node ultra/ultra.mjs captions-align --script script.txt \
+  --envelope workspace/raw-probe/audio-envelope.json \
+  --style punchy-shortform --aspect 9:16
+node ultra/ultra.mjs status --json
+ULTRA_FORCE_TIER=ffmpeg-only node ultra/ultra.mjs doctor --json
+```
 
 ## Scene authoring: primitives + escape hatch
 
@@ -113,9 +156,9 @@ cloud-native via `engine: "revideo"` + `enginePayload.sceneType`
 ```bash
 npm install
 npm run typecheck
-npm test                 # 7 TS suites + Python mock-bpy Blender test
+npm test                 # all 10 TS suites + Python mock-bpy Blender test
 npm run test:python      # py_compile + tests/test_blender_script.py
-npm run pack:cloud       # → dist/ultra-workflow-cloud.zip (lean, <3 MB)
+npm run pack:cloud       # → dist/ultra-workflow-cloud.zip (≤ 2.2 MiB, LF-normalized)
 ```
 
 Requirements (local dev / native engines): Node ≥ 20, FFmpeg + ffprobe on PATH,
@@ -144,6 +187,7 @@ npm run setup:engines
 | phase7 | **isolated zero-install cloud run** from the packed zip (custom HTML + vector choreography + 3D alpha + verify + render) |
 | phase8 | **dual-process style system**: style-probe → pack validate/export/import → raw-probe silence edit plan → sourceClip build → `verify --style` compliance + style-match.png → render |
 | phase9 | **ChatGPT container simulation**: zero-install zip + `ULTRA_NO_BROWSER=1` → `renderTier: browserless-py` → synth-audio WAVs (ffprobe 48k/2ch) → py-canvas multi-scene build (sourceClip + kinetic title + revideo chart + alpha wireframe) → verify (stutterEvents 0, ffmpeg audit pairs) → render |
+| phase10 | **production hardening**: bundled fonts in zip with zero CRLF scripts, all 3 built-in packs validate, SRT + forced-alignment captions with 9:16 safe zones + danger-zone lint, live `ULTRA_FORCE_TIER=ffmpeg-only` build/verify/render, `status --json` stage tracking |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs

@@ -4,6 +4,8 @@ import path from "node:path";
 import type { LintDefectT } from "../../core/schema.js";
 import type { LintContext, RenderContext, RenderOutcome, SceneEngine } from "../types.js";
 import { resolveAssetPath, resolveSourceClipPath } from "../../core/assets.js";
+import { chunksInWindow, loadCaptionsForScene } from "../../core/captions.js";
+import { resolveAspectProfile } from "../../core/safe-zones.js";
 import { discoverFonts, installRoot, resolvePythonCommand, type PythonCommand } from "../../core/env.js";
 import { run } from "../../core/ffmpeg.js";
 import { ensureDir, pathExists, rmrf, round, tailLines } from "../../core/util.js";
@@ -65,6 +67,16 @@ async function buildBundle(ctx: RenderContext | LintContext): Promise<string> {
     sourceClip = { ...scene.sourceClip, path: resolved };
   }
 
+  const aspect = resolveAspectProfile(project.meta);
+  const captionsDoc = await loadCaptionsForScene(workspace, scene);
+  const captions = captionsDoc
+    ? {
+        aspect: captionsDoc.aspect,
+        typography: captionsDoc.typography,
+        chunks: chunksInWindow(captionsDoc, scene.startSec, scene.endSec),
+      }
+    : null;
+
   const bundle = {
     scene: { ...scene, sourceClip },
     tokens: project.designTokens,
@@ -75,12 +87,21 @@ async function buildBundle(ctx: RenderContext | LintContext): Promise<string> {
       fps: ctx.fps,
       durationSec,
       sceneDurationSec: round(scene.endSec - scene.startSec, 6),
+      sceneStartSec: scene.startSec,
+      aspectProfile: project.meta.aspectProfile ?? null,
+      aspect,
       alpha,
       motionBlurSamples: scene.motionBlurSamples ?? 1,
       seed: 424242,
     },
     sceneGraph,
-    fontFiles: { regular: fonts.regular, bold: fonts.bold, mono: fonts.mono },
+    captions,
+    fontFiles: {
+      regular: fonts.regular,
+      bold: fonts.bold,
+      mono: fonts.mono,
+      bundled: fonts.bundled.map((f) => ({ file: f.file, family: f.family, role: f.role, path: f.path })),
+    },
   };
 
   const tmp = path.join(buildDir, "tmp");

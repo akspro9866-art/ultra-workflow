@@ -5,6 +5,8 @@ import { StylePackSchema, type StylePackT } from "./style-schema.js";
 import { stylesRoot } from "./style-pack.js";
 import { run } from "./ffmpeg.js";
 import { ensureDir, round, writeJsonAtomic } from "./util.js";
+import { safeZonesFor } from "./safe-zones.js";
+import type { AspectProfileT } from "./schema.js";
 
 export interface RawSilence {
   startSec: number;
@@ -40,6 +42,8 @@ export interface RawEditPlan {
     captionWindows: { startSec: number; endSec: number; maxWords: number }[];
   };
   beatsSec: number[];
+  aspect: AspectProfileT;
+  safeZones: ReturnType<typeof safeZonesFor>;
 }
 
 function mergeIntervals(intervals: { startSec: number; endSec: number }[]): { startSec: number; endSec: number }[] {
@@ -104,7 +108,12 @@ export interface RawProbeResult {
 }
 
 /** Process 2B · Rule 1 — probe the user's own footage and derive an edit plan. */
-export async function rawProbe(videoInput: string, slug: string, outDirInput: string): Promise<RawProbeResult> {
+export async function rawProbe(
+  videoInput: string,
+  slug: string,
+  outDirInput: string,
+  aspect: AspectProfileT = "16:9",
+): Promise<RawProbeResult> {
   const video = path.resolve(videoInput);
   await fs.access(video).catch(() => {
     throw new Error(`raw video not found: ${video}`);
@@ -209,6 +218,8 @@ export async function rawProbe(videoInput: string, slug: string, outDirInput: st
       captionWindows,
     },
     beatsSec: probe.onsetsSec,
+    aspect,
+    safeZones: safeZonesFor(aspect),
   };
 
   await writeJsonAtomic(path.join(outDir, "raw-edit-plan.json"), plan);

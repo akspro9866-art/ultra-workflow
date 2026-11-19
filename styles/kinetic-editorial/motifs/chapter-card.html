@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chapter Card — kinetic-editorial</title>
+<style>
+  :root {
+    --bg: #f6f0e6;
+    --surface: #e8dfce;
+    --ink: #1c1b18;
+    --muted: #6a645a;
+    --accent: #e4572e;
+    --teal: #2f5d62;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: 'Ultra Sans', 'Segoe UI', sans-serif; color: var(--ink); }
+  .frame { position: absolute; inset: 0; padding: 8vh 7vw; }
+  .frame::before {
+    content: ""; position: absolute; inset: 0; opacity: 0.35; pointer-events: none;
+    background-image: radial-gradient(rgba(28,27,24,0.16) 0.7px, transparent 0.9px);
+    background-size: 4px 4px;
+  }
+  .rule { position: absolute; left: 7vw; right: 7vw; height: 1px; background: rgba(28,27,24,0.18); }
+  .rule.top { top: 18vh; }
+  .rule.bottom { bottom: 18vh; }
+  .meta {
+    position: absolute; left: 7vw; top: 11vh; display: flex; gap: 3vw;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.8vh; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .meta b { color: var(--accent); font-weight: 400; }
+  .index {
+    position: absolute; left: 7vw; top: 24vh;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 2.2vh; letter-spacing: 0.24em;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .title {
+    position: absolute; left: 7vw; top: 29vh; width: 62vw;
+    font-family: 'Ultra Display', 'Arial Black', sans-serif; font-weight: 700;
+    font-size: 8.2vw; line-height: 1; letter-spacing: -0.028em;
+  }
+  .title .accentline { color: var(--accent); }
+  .deck {
+    position: absolute; left: 7vw; top: 64vh; width: 46vw;
+    font-size: 2.7vh; line-height: 1.45; color: var(--muted);
+  }
+  .stamp {
+    position: absolute; right: 7vw; bottom: 25vh; width: 15vw; height: 15vw; border-radius: 50%;
+    border: 1px solid rgba(228,87,46,0.6); display: flex; align-items: center; justify-content: center;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.5vh; letter-spacing: 0.18em;
+    color: var(--accent); text-transform: uppercase; text-align: center; line-height: 1.6;
+  }
+  .foot {
+    position: absolute; left: 7vw; right: 7vw; bottom: 11vh; display: flex; justify-content: space-between;
+    font-family: 'Ultra Mono', 'Consolas', monospace; font-size: 1.6vh; letter-spacing: 0.2em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .block { position: absolute; left: 7vw; top: 58.5vh; width: 10vw; height: 1.1vh; background: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="rule top"></div>
+    <div class="rule bottom"></div>
+    <div class="meta"><span><b>Ultra</b> Editorial</span><span>16:9 / Explainer</span></div>
+    <div class="index" id="index">Chapter 01 — The premise</div>
+    <div class="title" id="title">The hidden<br/>cost of <span class="accentline">speed.</span></div>
+    <div class="deck" id="deck">Everyone measures how fast the edit moves. Almost nobody measures what the cut costs the viewer.</div>
+    <div class="block" id="block"></div>
+    <div class="stamp" id="stamp">Written<br/>first</div>
+    <div class="foot"><span>Kinetic Editorial</span><span>00:00 — 00:02</span></div>
+  </div>
+  <script>
+    (function () {
+      function inOutSine(t) { t = Math.max(0, Math.min(1, t)); return -(Math.cos(Math.PI * t) - 1) / 2; }
+      function outCubic(t) { t = Math.max(0, Math.min(1, t)); var p = t - 1; return p * p * p + 1; }
+      var title = document.getElementById('title');
+      var index = document.getElementById('index');
+      var deck = document.getElementById('deck');
+      var block = document.getElementById('block');
+      var stamp = document.getElementById('stamp');
+      function apply(frame, fps) {
+        var t = frame / (fps || 30);
+        var p = inOutSine(t / 0.7);
+        title.style.opacity = String(outCubic(t / 0.5));
+        title.style.transform = 'translateY(' + (1 - p) * 4 + 'vh)';
+        index.style.opacity = String(outCubic(t / 0.4));
+        deck.style.opacity = String(outCubic((t - 0.42) / 0.5));
+        block.style.width = (inOutSine((t - 0.3) / 0.6) * 10) + 'vw';
+        stamp.style.opacity = String(outCubic((t - 0.6) / 0.4) * 0.9);
+        stamp.style.transform = 'rotate(' + (-6 + 6 * outCubic((t - 0.6) / 0.4)) + 'deg)';
+      }
+      window.__ULTRA_SEEK = function (frame, fps) { apply(frame, fps); return true; };
+      window.ultraRender = function (frame, fps) { apply(frame, fps); };
+      window.__ULTRA_SEEK(0, 30);
+    })();
+  </script>
+</body>
+</html>

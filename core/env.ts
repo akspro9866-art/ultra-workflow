@@ -159,9 +159,45 @@ export async function detectPythonModules(): Promise<{ pil: boolean; numpy: bool
   return { pil: false, numpy: false, cairosvg: false };
 }
 
+export interface BundledFont {
+  file: string;
+  family: string;
+  role: "display" | "regular" | "bold" | "mono";
+  path: string;
+  bytes: number;
+}
+
+const BUNDLED_FONT_FILES: { file: string; family: string; role: BundledFont["role"] }[] = [
+  { file: "UltraDisplay-Bold.ttf", family: "Ultra Display", role: "display" },
+  { file: "UltraSans-Regular.ttf", family: "Ultra Sans", role: "regular" },
+  { file: "UltraSans-Bold.ttf", family: "Ultra Sans", role: "bold" },
+  { file: "UltraMono-Regular.ttf", family: "Ultra Mono", role: "mono" },
+];
+
+/** Offline OFL fonts shipped with Ultra Workflow (assets/fonts, bundled in the cloud zip). */
+export function bundledFontsDir(): string {
+  return path.join(installRoot(), "assets", "fonts");
+}
+
+export async function listBundledFonts(): Promise<BundledFont[]> {
+  const dir = bundledFontsDir();
+  const out: BundledFont[] = [];
+  for (const entry of BUNDLED_FONT_FILES) {
+    const file = path.join(dir, entry.file);
+    try {
+      const stat = await fs.stat(file);
+      out.push({ ...entry, path: file, bytes: stat.size });
+    } catch {
+      // font not bundled (source checkout without generated fonts)
+    }
+  }
+  return out;
+}
+
 function fontDirectoriesFor(workspaceDir: string): string[] {
   const home = os.homedir();
-  const dirs: string[] = [path.join(workspaceDir, "assets", "fonts"), path.join(process.cwd(), "workspace", "assets", "fonts")];
+  const workspaceDirs = [path.join(workspaceDir, "assets", "fonts"), path.join(process.cwd(), "workspace", "assets", "fonts")];
+  const dirs: string[] = [...workspaceDirs, bundledFontsDir()];
   if (process.platform === "win32") {
     dirs.push("C:\\Windows\\Fonts");
     if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "Microsoft", "Windows", "Fonts"));
@@ -194,6 +230,7 @@ export async function discoverFonts(workspaceDir?: string): Promise<{
   mono: string | null;
   count: number;
   directories: string[];
+  bundled: BundledFont[];
 }> {
   const workspace = workspaceDir ?? path.resolve(process.cwd(), "workspace");
   const directories = fontDirectoriesFor(workspace);
@@ -202,42 +239,54 @@ export async function discoverFonts(workspaceDir?: string): Promise<{
   const isItalic = (f: string) => /italic|oblique/i.test(path.basename(f));
   const isBold = (f: string) => /bold|bd|black|heavy|semibold/i.test(path.basename(f));
   const isMono = (f: string) => /mono|consol|courier|menlo|code|hack/i.test(path.basename(f));
-  const preferred = (f: string, terms: RegExp) => terms.test(path.basename(f));
   const pick = (predicate: (f: string) => boolean, preference: RegExp) =>
     files.find((f) => predicate(f) && preference.test(path.basename(f)) && !isItalic(f)) ??
     files.find((f) => predicate(f) && !isItalic(f)) ??
     null;
   return {
-    regular: pick((f) => !isBold(f) && !isMono(f), /segoeui|arial|inter|roboto|noto.*sans|dejavu.*sans|liberation.*sans/i),
-    bold: pick(isBold, /segoeui.*b|arial.*b|inter.*b|roboto.*b|noto.*sans.*b|dejavu.*sans.*b|liberation.*sans.*b/i),
-    mono: pick(isMono, /consola|dejavu.*mono|liberation.*mono|menlo|noto.*mono/i),
+    regular: pick(
+      (f) => !isBold(f) && !isMono(f),
+      /ultra.*sans.*regular|segoeui|arial|inter|roboto|noto.*sans|dejavu.*sans|liberation.*sans/i,
+    ),
+    bold: pick(isBold, /ultra.*sans.*bold|ultra.*display|segoeui.*b|arial.*b|inter.*b|roboto.*b|noto.*sans.*b|dejavu.*sans.*b|liberation.*sans.*b/i),
+    mono: pick(isMono, /ultra.*mono|consola|dejavu.*mono|liberation.*mono|menlo|noto.*mono/i),
     count: files.length,
     directories,
+    bundled: await listBundledFonts(),
   };
 }
 
 export type RenderTier = "full-cdp" | "browserless-py" | "ffmpeg-only";
 
+function forcedRenderTier(): RenderTier | null {
+  const raw = (process.env.ULTRA_FORCE_TIER ?? "").trim();
+  return raw === "full-cdp" || raw === "browserless-py" || raw === "ffmpeg-only" ? raw : null;
+}
+
 export async function detectRenderTier(): Promise<{
   tier: RenderTier;
+  detectedTier: RenderTier;
+  forcedTier: RenderTier | null;
   browser: { available: boolean; kind: string | null; executablePath: string | null };
   pythonModules: { pil: boolean; numpy: boolean; cairosvg: boolean };
   python: boolean;
   ffmpeg: boolean;
 }> {
   const forcedNoBrowser = process.env.ULTRA_NO_BROWSER === "1";
+  const forcedTier = forcedRenderTier();
   const browser = forcedNoBrowser
     ? { available: false, kind: null, executablePath: null }
     : await getBrowserInfo().catch(() => ({ available: false, kind: null, executablePath: null }));
   const ffmpeg = Boolean(await probeVersion("ffmpeg", ["-version"], 8000));
   const python = Boolean(await resolvePythonCommand());
   const pythonModules = await detectPythonModules();
-  const tier: RenderTier = browser.available
+  const detectedTier: RenderTier = browser.available
     ? "full-cdp"
     : ffmpeg && python && pythonModules.pil
       ? "browserless-py"
       : "ffmpeg-only";
-  return { tier, browser, pythonModules, python, ffmpeg };
+  const tier = forcedTier ?? detectedTier;
+  return { tier, detectedTier, forcedTier, browser, pythonModules, python, ffmpeg };
 }
 
 export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chatgpt" = "auto"): Promise<DoctorReportT> {
@@ -258,11 +307,15 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
   if (!ffmpegVersionLine) warnings.push("FFmpeg is missing; install FFmpeg and ensure it is on PATH.");
   if (!ffprobeVersionLine) warnings.push("ffprobe is missing; install FFmpeg (full build) and ensure it is on PATH.");
   if (!python) warnings.push("Python 3.11+ is not available; Blender-native rendering and py-canvas are unavailable.");
-  if (!browserInfo.available) {
+  if (tierInfo.forcedTier) {
+    warnings.push(
+      `ULTRA_FORCE_TIER=${tierInfo.forcedTier} · detected tier was ${tierInfo.detectedTier}; routing is forced for deterministic testing.`,
+    );
+  } else if (!browserInfo.available) {
     warnings.push(
       tierInfo.tier === "browserless-py"
         ? "No browser: renderTier=browserless-py (Pillow renderer + synth-audio; install Chromium for full-cdp)."
-        : "No browser and no Pillow: renderTier=ffmpeg-only (reduced py-canvas rendering).",
+        : "No browser and no Pillow: renderTier=ffmpeg-only (pure FFmpeg drawtext/drawbox/zoompan renderer with bundled TTFs).",
     );
   }
   if (!blender) warnings.push("Blender not found; 3D scenes use Three.js (full-cdp) or the py-canvas wireframe fallback.");
@@ -278,8 +331,9 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
   }
 
   return {
-    ok: Boolean(ffmpegVersionLine && ffprobeVersionLine && tierInfo.tier !== "ffmpeg-only"),
+    ok: Boolean(ffmpegVersionLine && ffprobeVersionLine),
     renderTier: tierInfo.tier,
+    forcedTier: tierInfo.forcedTier,
     host,
     os: {
       platform: process.platform,
@@ -290,7 +344,7 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
     node: process.version,
     python,
     pythonModules: tierInfo.pythonModules,
-    fonts,
+    fonts: { ...fonts, bundledFonts: fonts.bundled },
     ffmpeg: { available: Boolean(ffmpegVersionLine), version: ffmpegVersionLine },
     ffprobe: { available: Boolean(ffprobeVersionLine), version: ffprobeVersionLine },
     browser: browserInfo,

@@ -8,3 +8,12 @@ Repo: https://github.com/akspro9866-art/ultra-workflow · Zero-install/offline/z
 4. `asset-plan --host chatgpt` for any overlays; use Image Generation for stills; `synth-audio` for any extra SFX/music; `validate-assets`.
 5. `build` → `verify --style <slug>`: require stutterEvents 0, ±1.5 dB style LUFS, style compliance all OK, and inspect build/audit-frames/style-match.png (STYLE EXEMPLAR vs YOUR EDIT). Grade 0–100; patch via workspace/patch.json + `patch`/`build`/`verify` (≤3 rounds) until ≥90.
 6. `render`; deliver build/ultra-final.mp4 + compliance block + match score + patch history.
+
+V5 STUDIO COMMANDS (use these — do not guess state):
+- `status --json`: call at chat start and after every long step; returns detected process, completed stages, pending assets, draft/verify state and the exact `nextCommand`.
+- `captions-align --srt <file> | --vtt <file> | --words <file> | --script <file> --envelope <audio-envelope.json>` with `--style <slug> --aspect 9:16|16:9|1:1 --out workspace/captions.json`: word-level chunks, keyword flags and safeBox; sourceClip scenes ingest it automatically as active-word pill/underline/color captions.
+- `--aspect 9:16|16:9|1:1` also applies to `raw-probe` and `meta.aspectProfile`; 9:16 reserves top 12% / bottom 22% / right 15% / left 5%. Rule 5 lint flags captions or text inside platform danger zones.
+- Built-in Style Packs ready now: `punchy-shortform` (9:16), `kinetic-editorial` (16:9), `dark-tech-launch` (16:9). Use with `--style <slug>`; use their style.json/STYLE.md/motifs as gold-standard structure in Process 1.
+- Bundled offline fonts: Ultra Display / Ultra Sans / Ultra Mono (`assets/fonts/*.ttf`) — never download fonts.
+- `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
+- Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg

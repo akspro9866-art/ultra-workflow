@@ -290,6 +290,116 @@ def draw_text_element(base, draw, scene, tokens, el, t, W, H, fonts):
 
 
 # ---------------------------------------------------------------------------
+# Word-level captions (workspace/captions.json on sourceClip scenes)
+# ---------------------------------------------------------------------------
+
+def caption_casing(text, casing):
+    if casing == "upper":
+        return text.upper()
+    if casing == "title":
+        return " ".join(w[:1].upper() + w[1:].lower() for w in text.split())
+    if casing == "sentence":
+        lowered = text.lower()
+        return lowered[:1].upper() + lowered[1:]
+    return text
+
+
+def _caption_lines(words, font, max_width):
+    space = font.getlength(" ") if HAVE_PIL else 8
+    lines, current, width = [], [], 0.0
+    for idx, word in enumerate(words):
+        tw = font.getlength(word) if HAVE_PIL else len(word) * 8
+        extra = space if current else 0
+        if current and width + extra + tw > max_width:
+            lines.append(current)
+            current, width = [(idx, word, tw)], tw
+        else:
+            current.append((idx, word, tw))
+            width += extra + tw
+    if current:
+        lines.append(current)
+    return lines
+
+
+def draw_captions(base, draw, captions, scene_start, t, W, H, fonts, tokens):
+    if not captions:
+        return
+    abs_t = scene_start + t
+    active = None
+    for chunk in captions.get("chunks", []):
+        if float(chunk.get("startSec", 0)) <= abs_t < float(chunk.get("endSec", 0)):
+            active = chunk
+            break
+    if active is None:
+        return
+    typography = captions.get("typography") or {}
+    casing = typography.get("casing", "upper")
+    highlight = typography.get("activeWordHighlight", "pill")
+    size = max(16, int(H * (0.045 if H > W else 0.05)))
+    font = fonts.get("body", True, size)
+    band = active.get("safeBox") or {}
+    band_x = float(band.get("xPercent", 5)) / 100 * W
+    band_y = float(band.get("yPercent", 62)) / 100 * H
+    band_w = float(band.get("widthPercent", 80)) / 100 * W
+    band_h = float(band.get("heightPercent", 14)) / 100 * H
+    words = [caption_casing(str(w.get("text", "")), casing) for w in active.get("words", [])]
+    if not words:
+        return
+    line_h = size * 1.2
+    lines = _caption_lines(words, font, band_w)
+    total_h = line_h * len(lines)
+    top = band_y + max(0, (band_h - total_h) / 2)
+    palette = tokens.get("palette") or {}
+    values = list(palette.values())
+    bg = tokens.get("background") or (values[0] if values else "#101820")
+    if str(bg).lower() == "transparent":
+        bg = "#101820"
+    text_color = hex_rgba(palette.get("textPrimary") or palette.get("fg") or "#ffffff")
+    accent_hex = palette.get("accent") or palette.get("accent1") or (values[2] if len(values) > 2 else "#ffb703")
+    accent = hex_rgba(accent_hex)
+    bg_rgb = hex_rgba(bg)
+    # active word by absolute time (fall back to last started word)
+    active_word = 0
+    word_meta = active.get("words", [])
+    for wi, word in enumerate(word_meta):
+        if float(word.get("startSec", 0)) <= abs_t < float(word.get("endSec", 0)):
+            active_word = wi
+            break
+        if abs_t >= float(word.get("startSec", 0)):
+            active_word = wi
+    for line_index, line in enumerate(lines):
+        line_w = sum(item[2] for item in line) + (font.getlength(" ") if HAVE_PIL else 8) * (len(line) - 1)
+        line_x = band_x + (band_w - line_w) / 2
+        line_y = top + line_index * line_h
+        pad = size * 0.14
+        draw.rounded_rectangle(
+            [line_x - pad, line_y - pad * 0.35, line_x + line_w + pad, line_y + line_h + pad * 0.1],
+            radius=int(size * 0.18),
+            fill=(0, 0, 0, 150),
+        )
+        cursor = line_x
+        for idx, word, tw in line:
+            if idx == active_word and highlight != "none":
+                if highlight == "pill":
+                    draw.rounded_rectangle(
+                        [cursor - pad * 0.6, line_y - pad * 0.25, cursor + tw + pad * 0.6, line_y + line_h + pad * 0.05],
+                        radius=int(size * 0.2),
+                        fill=accent,
+                    )
+                    fill = bg_rgb
+                elif highlight == "underline":
+                    draw.rectangle([cursor, line_y + line_h - max(2, int(size * 0.08)), cursor + tw, line_y + line_h], fill=accent)
+                    fill = accent
+                else:
+                    fill = accent
+            else:
+                fill = text_color
+            draw.text((cursor, line_y), word, font=font, fill=fill)
+            cursor += tw + (font.getlength(" ") if HAVE_PIL else 8)
+    del bg_rgb
+
+
+# ---------------------------------------------------------------------------
 # Choreography (revideo engine payloads)
 # ---------------------------------------------------------------------------
 
@@ -701,6 +811,9 @@ class RenderContext:
         self.alpha = bool(self.meta.get("alpha"))
         self.seed = int(self.meta.get("seed", 424242))
         self.duration = float(self.meta.get("sceneDurationSec", 1.0))
+        self.scene_start = float(self.meta.get("sceneStartSec", 0))
+        self.captions = bundle.get("captions")
+        self.aspect = self.meta.get("aspect") or {}
 
     def render(self, t, frame_index, lint_mode=False):
         scene = self.scene
@@ -725,6 +838,7 @@ class RenderContext:
         draw_choreo(base, draw, scene, self.tokens, t, self.duration, W, H, self.fonts)
         for el in scene.get("textElements", []):
             draw_text_element(base, draw, scene, self.tokens, el, t, W, H, self.fonts)
+        draw_captions(base, draw, self.captions, self.scene_start, t, W, H, self.fonts, self.tokens)
 
         if not lint_mode:
             grain_opacity = float(self.tokens.get("grainOpacity", 0.05))
@@ -746,6 +860,24 @@ class RenderContext:
 # ---------------------------------------------------------------------------
 # Lint
 # ---------------------------------------------------------------------------
+
+def _zone_hit(box, aspect, W, H):
+    if not aspect or not aspect.get("explicit"):
+        return None
+    zones = ((aspect.get("zones") or {}).get("dangerZones")) or []
+    x, y, w, h = box
+    for zone in zones:
+        rect = zone.get("rect") or {}
+        zx = float(rect.get("x", 0)) * W
+        zy = float(rect.get("y", 0)) * H
+        zw = float(rect.get("width", 0)) * W
+        zh = float(rect.get("height", 0)) * H
+        iw = min(x + w, zx + zw) - max(x, zx)
+        ih = min(y + h, zy + zh) - max(y, zy)
+        if iw > 1 and ih > 1 and iw * ih > 4:
+            return zone
+    return None
+
 
 def lint_bundle(bundle):
     ctx = RenderContext(bundle, {})
@@ -784,11 +916,25 @@ def lint_bundle(bundle):
                 text_count += 1
                 if box["x"] < -1 or box["y"] < -1 or box["x"] + box["w"] > W + 1 or box["y"] + box["h"] > H + 1:
                     add("clip", f'text "{el.get("id")}" extends outside the {W}x{H} viewport', frame_index)
+                zone = _zone_hit((box["x"], box["y"], box["w"], box["h"]), ctx.aspect, W, H)
+                if zone:
+                    add("layout", f'text "{el.get("id")}" enters the {zone.get("label")} safe-zone', frame_index)
                 size = float(el.get("sizePx", 40))
                 ratio = contrast_ratio(hex_rgb(el.get("color", "#ffffff")), bg_rgb)
                 needed = 3.0 if size >= 24 else 4.5
                 if ratio < needed:
                     add("contrast", f'text "{el.get("id")}" contrast {ratio:.2f}:1 < {needed}:1', frame_index)
+        for chunk in (ctx.captions or {}).get("chunks", []):
+            band = chunk.get("safeBox") or {}
+            cb = (
+                float(band.get("xPercent", 0)) / 100 * W,
+                float(band.get("yPercent", 0)) / 100 * H,
+                float(band.get("widthPercent", 0)) / 100 * W,
+                float(band.get("heightPercent", 0)) / 100 * H,
+            )
+            zone = _zone_hit(cb, ctx.aspect, W, H)
+            if zone:
+                add("layout", f'caption "{chunk.get("id")}" enters the {zone.get("label")} safe-zone', frame_index)
         grey = img.convert("L")
         lo, hi = grey.getextrema()
         has_content = text_count > 0 or bool(scene.get("layers")) or bool(scene.get("sourceClip")) or bool(ctx.graph) or bool(scene.get("enginePayload", {}).get("sceneType"))
@@ -821,13 +967,38 @@ def ffmpeg_fallback(bundle):
     font_file = fonts.get("bold") or fonts.get("regular")
     bg = scene.get("background") if scene.get("background") != "transparent" else "black@0.0"
     filters = []
+    def escape_font(path_value):
+        return path_value.replace(chr(92), "/").replace(":", chr(92) + ":")
+
     for el in scene.get("textElements", []):
         text = str(el.get("text", "")).replace("'", "").replace(":", "")
         color = str(el.get("color", "#ffffff")).replace("#", "0x")
         opts = f"text='{text}':x={int(el.get('x', 60))}:y={int(el.get('y', 60))}:fontsize={int(el.get('sizePx', 48))}:fontcolor={color}"
         if font_file:
-            opts += f":fontfile='{font_file.replace(chr(92), '/').replace(':', chr(92) + ':')}'"
+            opts += f":fontfile='{escape_font(font_file)}'"
         filters.append(f"drawtext={opts}")
+
+    caps = bundle.get("captions") or {}
+    scene_start = float(meta.get("sceneStartSec", 0))
+    cap_size = max(16, int(H * (0.045 if H > W else 0.05)))
+    for chunk in caps.get("chunks", []):
+        start = max(0.0, float(chunk.get("startSec", 0)) - scene_start)
+        end = min(duration, float(chunk.get("endSec", 0)) - scene_start)
+        if end <= start:
+            continue
+        text = caption_casing(str(chunk.get("text", "")), (caps.get("typography") or {}).get("casing", "upper"))
+        text = text.replace("'", "").replace(":", "").replace(",", " ")
+        band = chunk.get("safeBox") or {}
+        band_y = float(band.get("yPercent", 62)) / 100 * H + float(band.get("heightPercent", 14)) / 100 * H * 0.3
+        opts = (
+            f"text='{text}':x=(w-text_w)/2:y={int(band_y)}:fontsize={cap_size}"
+            f":fontcolor=0xffffff:box=1:boxcolor=0x00000099:boxborderw=14"
+            f":enable='between(t,{start:.3f},{end:.3f})'"
+        )
+        if font_file:
+            opts += f":fontfile='{escape_font(font_file)}'"
+        filters.append(f"drawtext={opts}")
+
     vf = ",".join(filters) if filters else "null"
     pix = "rgba" if alpha else "rgb24"
     cmd = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=c={bg}:s={W}x{H}:d={duration}:r={fps}", "-vf", vf,
