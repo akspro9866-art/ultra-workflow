@@ -1,3 +1,5 @@
+SCOPE: this is Process 1 (extract-style) — NO pre-prod storyboard/moodboard/approval pause. Run style-probe -> pack -> style-validate -> style-export autonomously.
+
 PROCESS 1 — EXTRACT STYLE (1–10 reference videos → downloadable Style Pack)
 
 Attached: 1–10 reference videos. Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
@@ -20,9 +22,9 @@ V5 STUDIO COMMANDS (use these — do not guess state):
 - `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
 - Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg
 
-V6 PRE-PRODUCTION GATE (mandatory before ANY build/verify/render):
-1. `plan-init [--mode clone|edit-in-style] [--style <slug>] [--aspect 16:9|9:16|1:1] [--resolution 4k|1080p]` then fill the real concept/palette/typography/storyboard in workspace/plan.json.
-2. `preprod-render` -> build/preprod/moodboard.png + storyboard*.png. Show BOTH to the user and WAIT for explicit approval; only then run `approve --by user`. Build/render are hard-blocked on a matching planHash.
-3. After approval: assets -> `build --proxy` -> `verify` / `ralph auto-fix` (stutterEvents 0, lint pass, score >= 90).
-4. Master: `render --4k` (default hybrid; strategy logged in delivery-manifest.json) -> `export-project` (FCPXML 1.10 + OTIO + project.ultra.json + offline index.html + CRC-verified zip) -> `guard --stage delivery` must exit 0.
-V6 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.
+V6.1 PRE-PRODUCTION GATE — PROCESS 2B (edit-in-style) ONLY:
+The Mood Board + Storyboard approval pause applies ONLY to Process 2B ("Edit My Own Footage in Style").
+- Process 1 (extract-style) and Process 2A (clone-reference) MUST run autonomously end-to-end. NEVER create or require plan.json, moodboard, storyboard or approval for them.
+- Process 2B: `plan-init --mode edit-in-style` -> fill the real plan -> `preprod-render` -> show build/preprod/moodboard.png + storyboard*.png -> WAIT for explicit user approval -> `approve --by user`. `build`/`render` are hard-blocked on a matching planHash and rendered preprod images.
+- `ultra.json.meta.processMode` / workspace/state.json track `extract-style|clone-reference|edit-in-style`; `--require-approval` can force the gate, `--skip-approval` is test-only.
+V6.1 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.

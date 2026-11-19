@@ -297,9 +297,15 @@ typography hierarchy, invariants, audio, grade, contiguous shot cards).
 up to four style exemplars; storyboard grids with shot timings, aspect-accurate
 wireframes, camera/engine/caption/SFX labels; paginated at 9 shots), and
 `approve`/`revoke` storing SHA-256(plan.json + ultra.json if present).
-`ultra build` and `ultra render` invoke `checkApprovalGate`; missing/revoked/
-changed hashes exit non-zero with a JSON `preprod-approval-required` payload.
-`--skip-approval` is test-only. Legacy projects without plan.json are unaffected.
+The gate is scoped to **Process 2B only**. `checkApprovalGate` resolves the
+active mode from `ultra.json.meta.processMode` → `workspace/state.json` →
+`plan.meta.mode` → measured artifacts. `edit-in-style` requires plan.json,
+rendered moodboard/storyboard and a matching approval hash; `clone-reference`
+and `extract-style` run without any pre-prod pause. `--require-approval` forces
+the gate for any mode; `--skip-approval` is test-only. Legacy projects without
+plan.json remain unaffected. `ultra status`, `orchestrate` and `context-pack`
+route each mode down its own steps, and `guard --stage delivery` demands a
+verified approval only for `edit-in-style`.
 
 **4K mastering.** `meta.deliveryResolution` and `build --proxy|--resolution`
 control proxy iteration (max 1280px) vs 4K. `render --4k` targets exact
@@ -359,7 +365,28 @@ ffprobe measurements, editable dir/files and CRC zip. Non-zero exit on any lie.
 - Ralph repairs mechanical gates only (safe zones, contrast, transitions, loudness,
   deterministic score regressions); it cannot invent missing creative assets.
 
+## 14 · v6.1 — process-scoped approval gate
+
+- Mode resolution precedence: explicit `ultra.json.meta.processMode` → `workspace/state.json`
+  (`ultra probe` writes `clone-reference`, `raw-probe` writes `edit-in-style`,
+  `style-probe` writes `extract-style`, `plan-init` writes its mode) → plan.meta.mode →
+  measured artifacts → legacy/ungated.
+- `ultra build` and `ultra render` gate ONLY `edit-in-style` (or explicit
+  `--require-approval`). 2B requires plan.json + rendered moodboard/storyboard +
+  a matching unrevoked hash. 2A/1 are never blocked.
+- `status`, `orchestrate --next-role` and `context-pack` route 2B through the
+  director pre-prod pause, 2A directly probe → build → verify/ralph → 4K →
+  export → guard, and 1 directly style-probe → validate → export.
+- `guard --stage delivery` requires approval.json only when mode is
+  `edit-in-style`; clone/extract deliveries are never failed for lacking it.
+- Harness (`AGENTS.md`, `.ultra/rules|skills|agents`), prompts, README/SKILL/SPEC
+  and the RAG index all state this scope identically.
+
 `tests/phase11.studio-harness.test.ts` proves RAG ranking + token-budgeted context
-+ guard failure on hallucinations; moodboard/storyboard + approval lock; Ralph
-self-heal trajectory; exact 4K master with AAC 48k stereo + FCPXML/OTIO/editable
-zip + delivery guard; and isolated zero-install rag/context/preprod-render.
++ guard failure on hallucinations; **2B moodboard/storyboard + build/render
+blocking before approval and success after `approve --by ci`**; **2A build,
+verify, 4K render, export and delivery guard with no plan/approval and a status
+command that never waits for approval**; **Process 1 style-probe → validate →
+export with no plan/approval**; Ralph self-heal trajectory; exact 4K master with
+AAC 48k stereo + FCPXML/OTIO/editable zip; and isolated zero-install
+rag/context/preprod-render.

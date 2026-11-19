@@ -1,3 +1,5 @@
+SCOPE: this is Process 2B (edit-in-style) — the moodboard + storyboard approval pause is MANDATORY before build/render.
+
 PROCESS 2B — EDIT MY VIDEO IN STYLE (raw footage + installed Style Pack)
 
 Attached: my_video.mp4 (my raw footage). Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
@@ -5,11 +7,12 @@ Attached: my_video.mp4 (my raw footage). Ultra is zero-install, offline, zero-AP
 1. Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Set ULTRA="node ultra-workflow/dist/ultra.mjs".
 2. Pick the style: `$ULTRA style-list`. Use `--style <slug>` everywhere below (e.g., `punchy-tech`).
 3. Rule 1 ANALYZE MY FOOTAGE: `$ULTRA raw-probe my_video.mp4 --style <slug> --out workspace/raw-probe`. Natively inspect raw-edit-plan.json + probe.json + frames: silence intervals, keepSegments (dead air removed with the style's silenceTrimMs), hookEnd, targetBodyAslSec, maxStaticHoldSec, punchInPoints, brollCutaways, captionWindows, chapter resets.
-4. Author workspace/ultra.json from the edit plan (do NOT guess): scenes use `sourceClip: { path, inSec, outSec, muteSourceAudio:false, jCutLeadSec, lCutTrailSec, scale, panX, panY, cropMode }` for trimmed keep-segments; add camera punch-in keyframes at plan points, styled word-highlighted captions (style typography palette/casing/captionChunkWords), motifs/B-roll/Revideo/3D overlays per plan, style colorGrade + grain/halation, only allowed transitions (never style.transitions.bannedTypes). `$ULTRA validate-spec`.
-5. Rule 2 ASSETS (optional overlays/music/SFX): `$ULTRA asset-plan` → generate natively → `$ULTRA validate-assets`.
-6. BUILD: `$ULTRA build` (sourceClip scenes render trimmed footage with punch-ins, captions, grade; audio follows J/L cuts; exact CFR).
-7. Rule 5 STYLE VERIFY: `$ULTRA verify --style <slug> --draft build/draft.mp4`. Requirements: quantitative pass (stutterEvents === 0, no black frames, LUFS within ±1.5 of the style target), style compliance all OK (ASL ranges, maxStaticHoldSec, banned transitions, palette distance), and a generated build/audit-frames/style-match.png. Inspect it natively and grade Style Match (0–100) against STYLE EXEMPLAR vs YOUR EDIT. Patch weak scenes via `$ULTRA patch` and repeat build+verify (max 3 rounds) until score ≥ 90.
-8. RENDER: `$ULTRA render`. Deliver build/ultra-final.mp4 + style compliance block + match score + patch history.
+4. Author workspace/ultra.json from the edit plan (do NOT guess): scenes use `sourceClip: { path, inSec, outSec, muteSourceAudio:false, jCutLeadSec, lCutTrailSec, scale, panX, panY, cropMode }` for trimmed keep-segments; add camera punch-in keyframes at plan points, styled word-highlighted captions (style typography palette/casing/captionChunkWords), motifs/B-roll/Revideo/3D overlays per plan, style colorGrade + grain/halation, only allowed transitions (never style.transitions.bannedTypes); set `meta.processMode: "edit-in-style"` and `meta.aspectProfile`. `$ULTRA validate-spec`.
+5. **Stage 1 pre-production gate (mandatory):** `$ULTRA plan-init --mode edit-in-style --style <slug> --aspect <aspect>` and fill the sourceClip trims/punch-ins/captions/overlays into plan.json. `$ULTRA preprod-render`; show build/preprod/moodboard.png + storyboard*.png; WAIT for explicit approval; `$ULTRA approve --by user`. Build/render are blocked until this hash matches.
+6. Rule 2 ASSETS (optional overlays/music/SFX): `$ULTRA asset-plan` → generate natively → `$ULTRA validate-assets`.
+7. BUILD: `$ULTRA build --proxy` (sourceClip scenes render trimmed footage with punch-ins, captions, grade; audio follows J/L cuts; exact CFR).
+8. Rule 5 STYLE VERIFY: `$ULTRA verify --style <slug> --draft build/draft.mp4`. Requirements: quantitative pass (stutterEvents === 0, no black frames, LUFS within ±1.5 of the style target), style compliance all OK (ASL ranges, maxStaticHoldSec, banned transitions, palette distance), and a generated build/audit-frames/style-match.png. Inspect it natively and grade Style Match (0–100) against STYLE EXEMPLAR vs YOUR EDIT. Patch weak scenes via `$ULTRA patch` or `$ULTRA ralph auto-fix` and repeat build+verify (max 3 rounds) until score ≥ 90.
+9. SUBMIT: `$ULTRA render --4k` → `$ULTRA export-project` → `$ULTRA guard --stage delivery`. Deliver build/ultra-final.mp4 + editable-project.zip + style compliance block + match score + patch history.
 
 V5 STUDIO COMMANDS (use these — do not guess state):
 - `status --json`: call at chat start and after every long step; returns detected process, completed stages, pending assets, draft/verify state and the exact `nextCommand`.
@@ -20,9 +23,9 @@ V5 STUDIO COMMANDS (use these — do not guess state):
 - `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
 - Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg
 
-V6 PRE-PRODUCTION GATE (mandatory before ANY build/verify/render):
-1. `plan-init [--mode clone|edit-in-style] [--style <slug>] [--aspect 16:9|9:16|1:1] [--resolution 4k|1080p]` then fill the real concept/palette/typography/storyboard in workspace/plan.json.
-2. `preprod-render` -> build/preprod/moodboard.png + storyboard*.png. Show BOTH to the user and WAIT for explicit approval; only then run `approve --by user`. Build/render are hard-blocked on a matching planHash.
-3. After approval: assets -> `build --proxy` -> `verify` / `ralph auto-fix` (stutterEvents 0, lint pass, score >= 90).
-4. Master: `render --4k` (default hybrid; strategy logged in delivery-manifest.json) -> `export-project` (FCPXML 1.10 + OTIO + project.ultra.json + offline index.html + CRC-verified zip) -> `guard --stage delivery` must exit 0.
-V6 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.
+V6.1 PRE-PRODUCTION GATE — PROCESS 2B (edit-in-style) ONLY:
+The Mood Board + Storyboard approval pause applies ONLY to Process 2B ("Edit My Own Footage in Style").
+- Process 1 (extract-style) and Process 2A (clone-reference) MUST run autonomously end-to-end. NEVER create or require plan.json, moodboard, storyboard or approval for them.
+- Process 2B: `plan-init --mode edit-in-style` -> fill the real plan -> `preprod-render` -> show build/preprod/moodboard.png + storyboard*.png -> WAIT for explicit user approval -> `approve --by user`. `build`/`render` are hard-blocked on a matching planHash and rendered preprod images.
+- `ultra.json.meta.processMode` / workspace/state.json track `extract-style|clone-reference|edit-in-style`; `--require-approval` can force the gate, `--skip-approval` is test-only.
+V6.1 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.

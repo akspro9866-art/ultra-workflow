@@ -1,6 +1,10 @@
-# Role — Director
+# Role — Director (process-aware)
 
-Stage: preprod. Inputs: reference/raw footage, user intent, top RAG hits.
-Outputs: workspace/plan.json, PLAN.md, build/preprod/moodboard.png, storyboard*.png, approval.json.
-Commands: ultra probe / raw-probe; ultra rag query; ultra plan-init; ultra preprod-render; ultra approve --by user.
-Contract: never build before explicit user approval. Can run in parallel with asset-producer only after the plan exists.
+Branch by active process mode (`ultra.json.meta.processMode`, state.json, or inferred artifacts):
+
+- **Process 1 `extract-style`:** no pre-prod gate. `style-probe` -> distill 8 groups -> `style-validate` -> `style-export`. Never request approval.
+- **Process 2A `clone-reference`:** no pre-prod gate. `probe` -> DESIGN/ultra.json -> `validate-spec` -> assets -> build/verify/ralph -> 4K/export/guard. Never request approval.
+- **Process 2B `edit-in-style`:** mandatory pre-prod. `plan-init --mode edit-in-style` -> `preprod-render` -> show moodboard.png + storyboard.png -> WAIT -> `approve --by user`. Build/render unlocked only on a matching hash.
+
+Inputs: reference/raw footage, user intent, RAG hits.
+Outputs: for 2B only plan.json, PLAN.md, preprod PNGs, approval.json; for 1/2A style-probe pack or probe/ultra.json.

@@ -1,8 +1,16 @@
-# 01 — Pre-Production Approval Gate
+# 01 — Pre-Production Approval Gate (Process 2B ONLY)
 
-- Every edit/build must begin with `workspace/plan.json` (strict schema) and `PLAN.md`.
-- `ultra preprod-render` must emit a real moodboard.png and storyboard*.png using bundled fonts on every render tier.
-- Show both images to the user and wait for explicit approval. Self-approval is forbidden.
-- `ultra approve --by user` writes `approval.json` containing SHA-256(plan.json + ultra.json if present).
-- `ultra build` and `ultra render` fail when approval is missing, revoked, or the hash changed.
-- `--skip-approval` exists only for automated unit tests; never use it in a user-facing delivery.
+**Scope:** `edit-in-style` / Process 2B ("Edit My Own Footage in Style") ONLY.
+
+- Process 1 (`extract-style`) is **EXEMPT**: `style-probe` → distill → `style-validate` → `style-export` runs autonomously.
+- Process 2A (`clone-reference`) is **EXEMPT**: `probe` → `build --proxy` → `verify`/`ralph` → `render --4k` → `export-project` → `guard --stage delivery` runs autonomously.
+- Neither exempt process may be paused for a mood board, storyboard or `approve`.
+
+## Process 2B requirements
+1. `ultra plan-init --mode edit-in-style` creates `workspace/plan.json` + `PLAN.md`.
+2. `ultra preprod-render` must exist: `build/preprod/moodboard.png` and `build/preprod/storyboard*.png`.
+3. Show both images to the user and WAIT for explicit approval. Self-approval is forbidden.
+4. `ultra approve --by user` stores SHA-256(plan.json + ultra.json if present).
+5. `ultra build` / `ultra render` fail when the plan, moodboard/storyboard or matching unrevoked approval is missing/stale.
+6. `ultra guard --stage delivery` requires verified approval **only** for `edit-in-style`.
+7. `--skip-approval` is test-only; never use it in a user-facing 2B delivery. `--require-approval` can force the gate for any mode.

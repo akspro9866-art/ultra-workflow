@@ -458,7 +458,7 @@ describe("phase 8 — dual-process style system", () => {
 
     const validate = await runCli(dir, ["validate-spec"], 120_000);
     expect(validate.code, validate.stderr).toBe(0);
-    const build = await runCli(dir, ["build"], 900_000);
+    const build = await runCli(dir, ["build", "--skip-approval"], 900_000);
     expect(build.code, build.stderr).toBe(0);
     const draft = path.join(dir, "build", "draft.mp4");
     const draftProbe = await ffprobeJson(draft);
@@ -485,7 +485,7 @@ describe("phase 8 — dual-process style system", () => {
     expect(matchSheet.size).toBeGreaterThan(20_000);
 
     // 6b/8) Final render is a playable CFR yuv420p MP4.
-    const render = await runCli(dir, ["render"], 900_000);
+    const render = await runCli(dir, ["render", "--skip-approval"], 900_000);
     expect(render.code, render.stderr).toBe(0);
     const finalFile = path.join(dir, "build", "ultra-final.mp4");
     const finalProbe = await ffprobeJson(finalFile);

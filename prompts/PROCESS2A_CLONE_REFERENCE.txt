@@ -1,3 +1,5 @@
+SCOPE: this is Process 2A (clone-reference) — NO pre-prod storyboard/moodboard/approval pause. Run probe -> build -> verify -> 4K render -> export -> guard autonomously.
+
 PROCESS 2A — CLONE REFERENCE VIDEO 1:1 (all 6 deterministic rules)
 
 Attached: one reference video. Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
@@ -5,9 +7,9 @@ Attached: one reference video. Ultra is zero-install, offline, zero-API: https:/
 1. Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Set ULTRA="node ultra-workflow/dist/ultra.mjs".
 2. Rule 1 ANALYZE: `$ULTRA probe <ref.mp4>`. Natively inspect probe.json (cuts, onsets, per-scene palettes/luminance/contrast, audio envelope) plus every contact sheet and probe frame. Write workspace/DESIGN.md, Motion.md, ultra.json (contiguous scenes tiling 0..duration; primitives: reveal/camera/clipReveal/svgDraw/motionBlurSamples; customHtmlFile only for exotic shots). `$ULTRA validate-spec`.
 3. Rule 2 ASSETS: `$ULTRA asset-plan` → generate EVERY listed asset natively (image/video/music/SFX/voice/SVG/PNG-alpha/scene_graph.json) to its targetPath → `$ULTRA validate-assets`.
-4. Rules 3/4 BUILD: `$ULTRA build` (frame-stepped, zero jitter, SHA-1 cache, automatic engine fallback).
-5. Rule 5 VERIFY: `$ULTRA verify <ref.mp4>`. Inspect EVERY build/audit-frames/pair_*.png (Left ORIGINAL / Right DRAFT), SSIM sceneSimilarity[] and verify-report.json. Score the 100-pt rubric. Any critical defect, stutterEvents > 0, or score < 90 → write workspace/patch.json → `$ULTRA patch workspace/patch.json && $ULTRA build && $ULTRA verify <ref.mp4>` (max 3 rounds).
-6. Rule 6 RENDER: `$ULTRA render` only when verification passes. Deliver build/ultra-final.mp4 + rubric scores + engine table + patch history.
+4. Rules 3/4 BUILD: `$ULTRA build --proxy` (frame-stepped, zero jitter, SHA-1 cache, automatic engine fallback). No plan/moodboard/approval is required for Process 2A.
+5. Rule 5 VERIFY: `$ULTRA verify <ref.mp4>`. Inspect EVERY build/audit-frames/pair_*.png (Left ORIGINAL / Right DRAFT), SSIM sceneSimilarity[] and verify-report.json. Score the 100-pt rubric. Any critical defect, stutterEvents > 0, or score < 90 → write workspace/patch.json → `$ULTRA patch workspace/patch.json && $ULTRA build --proxy && $ULTRA verify <ref.mp4>` or `$ULTRA ralph auto-fix` (max 3 rounds).
+6. Rule 6 MASTER + EDITABLE: `$ULTRA render --4k` only when verification passes → `$ULTRA export-project` → `$ULTRA guard --stage delivery`. Deliver build/ultra-final.mp4 + editable-project.zip + rubric scores + engine table + patch history.
 Anti-slop: reference palette only, no Arial/Times defaults, no neon-purple AI gradients, real easing keyed to probe cuts/beats.
 
 V5 STUDIO COMMANDS (use these — do not guess state):
@@ -19,9 +21,9 @@ V5 STUDIO COMMANDS (use these — do not guess state):
 - `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
 - Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg
 
-V6 PRE-PRODUCTION GATE (mandatory before ANY build/verify/render):
-1. `plan-init [--mode clone|edit-in-style] [--style <slug>] [--aspect 16:9|9:16|1:1] [--resolution 4k|1080p]` then fill the real concept/palette/typography/storyboard in workspace/plan.json.
-2. `preprod-render` -> build/preprod/moodboard.png + storyboard*.png. Show BOTH to the user and WAIT for explicit approval; only then run `approve --by user`. Build/render are hard-blocked on a matching planHash.
-3. After approval: assets -> `build --proxy` -> `verify` / `ralph auto-fix` (stutterEvents 0, lint pass, score >= 90).
-4. Master: `render --4k` (default hybrid; strategy logged in delivery-manifest.json) -> `export-project` (FCPXML 1.10 + OTIO + project.ultra.json + offline index.html + CRC-verified zip) -> `guard --stage delivery` must exit 0.
-V6 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.
+V6.1 PRE-PRODUCTION GATE — PROCESS 2B (edit-in-style) ONLY:
+The Mood Board + Storyboard approval pause applies ONLY to Process 2B ("Edit My Own Footage in Style").
+- Process 1 (extract-style) and Process 2A (clone-reference) MUST run autonomously end-to-end. NEVER create or require plan.json, moodboard, storyboard or approval for them.
+- Process 2B: `plan-init --mode edit-in-style` -> fill the real plan -> `preprod-render` -> show build/preprod/moodboard.png + storyboard*.png -> WAIT for explicit user approval -> `approve --by user`. `build`/`render` are hard-blocked on a matching planHash and rendered preprod images.
+- `ultra.json.meta.processMode` / workspace/state.json track `extract-style|clone-reference|edit-in-style`; `--require-approval` can force the gate, `--skip-approval` is test-only.
+V6.1 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.

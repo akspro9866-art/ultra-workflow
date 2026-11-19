@@ -5,7 +5,7 @@ import { loadPlan, readApproval, checkApprovalGate } from "./preprod.js";
 import { loadRagIndex, queryRag, type RagHit } from "./rag.js";
 import { runGuard, type GuardStage } from "./guard.js";
 import { buildStatus } from "./status.js";
-import { patchState } from "./state.js";
+import { patchState, resolveProcessMode } from "./state.js";
 import { ensureDir, pathExists } from "./util.js";
 
 export type ContextStage = "preprod" | "assets" | "build" | "verify" | "fix" | "master";
@@ -102,17 +102,22 @@ export async function buildContextPack(options: {
     if (await pathExists(file)) verified.push(`${label} → ${file}`);
   }
 
-  const approvalLine = plan
-    ? approval?.approved
-      ? `approved by ${approval.approvedBy} at ${approval.approvedAt}`
-      : await checkApprovalGate(workspace).then((gate) => `NOT APPROVED (${gate.code}) — show moodboard/storyboard and wait`)
-    : "no plan.json (legacy mode)";
-  const nextCommand = NEXT[stage] ?? status.nextCommand;
+  const mode = await resolveProcessMode(workspace);
+  const approvalLine =
+    mode !== "edit-in-style"
+      ? `not required (${mode ?? "legacy/clone/extract"} — only Process 2B is gated)`
+      : plan
+        ? approval?.approved
+          ? `approved by ${approval.approvedBy} at ${approval.approvedAt}`
+          : await checkApprovalGate(workspace, { mode }).then((gate) => `NOT APPROVED (${gate.code}) — show moodboard/storyboard and wait`)
+        : "no plan.json — run `ultra plan-init --mode edit-in-style`";
+  const stageNext = stage === "preprod" && mode && mode !== "edit-in-style" ? status.nextCommand : NEXT[stage];
+  const nextCommand = stageNext ?? status.nextCommand;
 
   const header = [
     `# Ultra context brief — stage ${stage}`,
     "",
-    `- Stage: **${stage}** · process: **${status.process}** · next: \`${nextCommand}\``,
+    `- Stage: **${stage}** · process: **${status.process}** · mode: **${mode ?? "legacy"}** · next: \`${nextCommand}\``,
     `- Plan: ${plan ? `${plan.meta.title} · ${plan.meta.aspect} · ${plan.meta.resolution}` : "none"}`,
     `- Approval: ${approvalLine}`,
     "",

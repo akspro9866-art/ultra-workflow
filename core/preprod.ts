@@ -9,6 +9,7 @@ import { escapeFilterPath } from "./stitcher.js";
 import { ffmpegOk } from "./ffmpeg.js";
 import { dangerZoneForPixelBox } from "./safe-zones.js";
 import { ensureDir, pathExists, readJson, writeJsonAtomic } from "./util.js";
+import { resolveProcessMode, setProcessMode, type ProcessMode } from "./state.js";
 
 /* ============================================================================
  * Pre-production approval gate
@@ -74,43 +75,101 @@ export async function readApproval(workspace: string): Promise<ApprovalT | null>
 export interface ApprovalGateResult {
   ok: boolean;
   required: boolean;
+  mode: ProcessMode | null;
   planHash: string | null;
   approval: ApprovalT | null;
-  code: "no-plan" | "missing" | "revoked" | "hash-mismatch" | "approved";
+  code: "no-plan" | "missing" | "preprod-missing" | "revoked" | "hash-mismatch" | "approved";
   message: string;
 }
 
-export async function checkApprovalGate(workspace: string, options: { skip?: boolean; require?: boolean } = {}): Promise<ApprovalGateResult> {
-  const planExists = await pathExists(path.join(workspace, PLAN_FILE));
+async function preprodArtifactsReady(workspace: string, buildDir: string): Promise<{ ok: boolean; missing: string[] }> {
+  const missing: string[] = [];
+  if (!(await pathExists(path.join(buildDir, "preprod", "moodboard.png")))) missing.push("build/preprod/moodboard.png");
+  let storyboard = false;
+  try {
+    storyboard = (await fs.readdir(path.join(buildDir, "preprod"))).some((name) => /^storyboard(-\d+)?\.png$/i.test(name));
+  } catch {
+    storyboard = false;
+  }
+  if (!storyboard) missing.push("build/preprod/storyboard*.png");
+  return { ok: missing.length === 0, missing };
+}
+
+export async function checkApprovalGate(
+  workspace: string,
+  options: {
+    skip?: boolean;
+    require?: boolean;
+    mode?: ProcessMode | null;
+    buildDir?: string;
+    requireArtifacts?: boolean;
+  } = {},
+): Promise<ApprovalGateResult> {
+  const mode = options.mode !== undefined ? options.mode : await resolveProcessMode(workspace);
+  const required = Boolean(options.require || mode === "edit-in-style");
   if (options.skip) {
-    return { ok: true, required: false, planHash: null, approval: null, code: "approved", message: "approval check skipped (--skip-approval)" };
+    return { ok: true, required, mode, planHash: null, approval: null, code: "approved", message: "approval check skipped (--skip-approval)" };
   }
-  if (!planExists && !options.require) {
-    return { ok: true, required: false, planHash: null, approval: null, code: "no-plan", message: "no plan.json — legacy workflow" };
+  if (!required) {
+    return {
+      ok: true,
+      required: false,
+      mode,
+      planHash: null,
+      approval: null,
+      code: "no-plan",
+      message: `pre-production approval is not required for mode ${mode ?? "legacy/clone/extract"}`,
+    };
   }
+  const planExists = await pathExists(path.join(workspace, PLAN_FILE));
   if (!planExists) {
-    return { ok: false, required: true, planHash: null, approval: null, code: "missing", message: "plan.json is required but missing — run `ultra plan-init`" };
+    return {
+      ok: false,
+      required: true,
+      mode,
+      planHash: null,
+      approval: null,
+      code: "missing",
+      message: "Process 2B (edit-in-style) requires plan.json — run `ultra plan-init --mode edit-in-style`",
+    };
+  }
+  if (options.requireArtifacts !== false) {
+    const artifacts = await preprodArtifactsReady(workspace, options.buildDir ?? path.resolve(workspace, "..", "build"));
+    if (!artifacts.ok) {
+      return {
+        ok: false,
+        required: true,
+        mode,
+        planHash: null,
+        approval: null,
+        code: "preprod-missing",
+        message: `Process 2B requires the approved mood board + storyboard first (missing ${artifacts.missing.join(", ")}) — run \`ultra preprod-render\` and show them to the user`,
+      };
+    }
   }
   const planHash = await computeApprovalHash(workspace);
   const approval = await readApproval(workspace);
   if (!approval || !approval.approved) {
-    return { ok: false, required: true, planHash, approval, code: approval ? "revoked" : "missing", message: "plan is not approved" };
+    return { ok: false, required: true, mode, planHash, approval, code: approval ? "revoked" : "missing", message: "Process 2B plan is not approved" };
   }
   if (approval.planHash !== planHash) {
-    return { ok: false, required: true, planHash, approval, code: "hash-mismatch", message: "plan.json / ultra.json changed since approval" };
+    return { ok: false, required: true, mode, planHash, approval, code: "hash-mismatch", message: "plan.json / ultra.json changed since approval" };
   }
-  return { ok: true, required: true, planHash, approval, code: "approved", message: `approved by ${approval.approvedBy}` };
+  return { ok: true, required: true, mode, planHash, approval, code: "approved", message: `approved by ${approval.approvedBy}` };
 }
 
 export function approvalErrorMessage(gate: ApprovalGateResult): string {
   return [
-    "PRE-PRODUCTION APPROVAL REQUIRED",
+    "PRE-PRODUCTION APPROVAL REQUIRED — PROCESS 2B (EDIT MY OWN FOOTAGE IN STYLE) ONLY",
     JSON.stringify(
       {
         error: "preprod-approval-required",
         code: gate.code,
+        mode: gate.mode,
         planHash: gate.planHash,
         required: gate.required,
+        message: gate.message,
+        exempt: ["extract-style (Process 1)", "clone-reference (Process 2A)"],
         next: [
           "show build/preprod/moodboard.png and build/preprod/storyboard*.png to the user",
           "wait for explicit approval",
@@ -238,6 +297,7 @@ export async function initPlan(options: PlanInitOptions): Promise<{ planFile: st
     shots,
   });
   await writeJsonAtomic(planFile, plan);
+  await setProcessMode(workspace, options.mode === "edit-in-style" ? "edit-in-style" : "clone-reference");
   const md = renderPlanMarkdown(plan, dims);
   const planMd = path.join(workspace, "PLAN.md");
   await fs.writeFile(planMd, md, "utf8");

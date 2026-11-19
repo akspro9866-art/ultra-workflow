@@ -192,9 +192,9 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
     expect(checks).toContain("placeholder");
   });
 
-  it("renders mood board + storyboard and hard-blocks build until approval", async () => {
+  it("Process 2B: mood board + storyboard approval hard-blocks build AND render until approved", async () => {
     const dir = await makeTempDir("phase11-preprod");
-    const plan = await runCli(dir, ["plan-init", "--mode", "clone", "--aspect", "9:16", "--resolution", "1080p"], 120_000);
+    const plan = await runCli(dir, ["plan-init", "--mode", "edit-in-style", "--style", "punchy-shortform", "--aspect", "9:16", "--resolution", "1080p"], 120_000);
     expect(plan.code, plan.stderr).toBe(0);
     const workspace = path.join(dir, "workspace");
     const project = UltraProject.parse({
@@ -206,6 +206,7 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
         fps: 30,
         durationSec: 2,
         aspectProfile: "9:16",
+        processMode: "edit-in-style",
       },
       designTokens: {
         palette: { bg: "#0b0d12", fg: "#f7f5ef", accent: "#ffd447" },
@@ -230,6 +231,11 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
     });
     await writeJsonAtomic(path.join(workspace, "ultra.json"), project);
 
+    // Pre-prod deliverables do not exist yet: build must fail on the Process 2B gate.
+    const missingAssets = await runCliEnv(dir, ["build", "--proxy"], FAST, 300_000);
+    expect(missingAssets.code).not.toBe(0);
+    expect(`${missingAssets.stdout}\n${missingAssets.stderr}`).toContain("preprod-approval-required");
+
     const preprod = await runCli(dir, ["preprod-render"], 180_000);
     expect(preprod.code, preprod.stderr).toBe(0);
     const moodboard = path.join(dir, "build", "preprod", "moodboard.png");
@@ -240,10 +246,12 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
       expect(bytes.subarray(1, 4).toString("ascii")).toBe("PNG");
     }
 
-    const blocked = await runCliEnv(dir, ["build", "--proxy"], FAST, 300_000);
-    expect(blocked.code).not.toBe(0);
-    expect(`${blocked.stdout}\n${blocked.stderr}`).toContain("PRE-PRODUCTION APPROVAL REQUIRED");
-    expect(`${blocked.stdout}\n${blocked.stderr}`).toContain("preprod-approval-required");
+    const blockedBuild = await runCliEnv(dir, ["build", "--proxy"], FAST, 300_000);
+    expect(blockedBuild.code).not.toBe(0);
+    expect(`${blockedBuild.stdout}\n${blockedBuild.stderr}`).toContain("PRE-PRODUCTION APPROVAL REQUIRED");
+    const blockedRender = await runCliEnv(dir, ["render", "--force"], FAST, 300_000);
+    expect(blockedRender.code).not.toBe(0);
+    expect(`${blockedRender.stdout}\n${blockedRender.stderr}`).toContain("preprod-approval-required");
 
     const approved = await runCli(dir, ["approve", "--by", "ci", "--notes", "phase11"], 60_000);
     expect(approved.code, approved.stderr).toBe(0);
@@ -254,6 +262,36 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
     const built = await runCliEnv(dir, ["build", "--proxy"], FAST, 300_000);
     expect(built.code, built.stderr).toBe(0);
     expect(await pathExists(path.join(dir, "build", "draft.mp4"))).toBe(true);
+    const rendered = await runCliEnv(dir, ["render", "--force"], FAST, 300_000);
+    expect(rendered.code, `${rendered.stdout}\n${rendered.stderr}`).toBe(0);
+    expect(await pathExists(path.join(dir, "build", "ultra-final.mp4"))).toBe(true);
+    const status = await runCliEnv(dir, ["status", "--json"], FAST, 120_000);
+    expect(status.code, status.stderr).toBe(0);
+    const statusJson = JSON.parse(status.stdout);
+    expect(statusJson.processMode).toBe("edit-in-style");
+    expect(statusJson.stages.some((stage: { name: string; done: boolean }) => stage.name === "plan approval (2B)" && stage.done)).toBe(true);
+  });
+
+  it("Process 1 (extract-style) runs style-probe -> validate -> export with no plan/approval pause", async () => {
+    const dir = await makeTempDir("phase11-process1");
+    const ref = path.join(dir, "ref.mp4");
+    await makeClip(ref, 640, 360, 2);
+    const probe = await runCli(dir, ["style-probe", "ref.mp4", "--out", "workspace/style-probe", "--hook-window", "1"], 300_000);
+    expect(probe.code, probe.stderr).toBe(0);
+    expect(await pathExists(path.join(dir, "workspace", "style-probe", "aggregate.json"))).toBe(true);
+    expect(await pathExists(path.join(dir, "workspace", "plan.json"))).toBe(false);
+    expect(await pathExists(path.join(dir, "workspace", "approval.json"))).toBe(false);
+    const state = JSON.parse(await fs.readFile(path.join(dir, "workspace", "state.json"), "utf8"));
+    expect(state.processMode).toBe("extract-style");
+
+    const packDir = path.join(dir, "pack", "punchy-shortform");
+    await fs.cp(path.join(ROOT, "styles", "punchy-shortform"), packDir, { recursive: true });
+    const validated = await runCli(dir, ["style-validate", packDir], 120_000);
+    expect(validated.code, validated.stderr).toBe(0);
+    const exported = await runCli(dir, ["style-export", packDir, "--out", "build/punchy-style-pack.zip"], 120_000);
+    expect(exported.code, exported.stderr).toBe(0);
+    expect(await pathExists(path.join(dir, "build", "punchy-style-pack.zip"))).toBe(true);
+    expect(await pathExists(path.join(dir, "workspace", "approval.json"))).toBe(false);
   });
 
   it("Ralph deterministically heals safe-zone, contrast and scoring regressions", async () => {
@@ -315,10 +353,12 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
     expect(history).toContain("Ralph loop history");
   });
 
-  it("masters an exact 4K deliverable and exports a verified editable project", async () => {
+  it("Process 2A: clone-reference builds, verifies, masters 4K, exports and guards with NO plan/approval", async () => {
     const dir = await makeTempDir("phase11-master");
     const raw = path.join(dir, "raw.mp4");
     await makeClip(raw, 1280, 720, 1.5);
+    const probed = await runCliEnv(dir, ["probe", "raw.mp4"], {}, 300_000);
+    expect(probed.code, probed.stderr).toBe(0);
     const workspace = path.join(dir, "workspace");
     await ensureDir(workspace);
     const project = UltraProject.parse({
@@ -331,6 +371,7 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
         durationSec: 1.5,
         aspectProfile: "16:9",
         deliveryResolution: "4k",
+        processMode: "clone-reference",
       },
       designTokens: {
         palette: { bg: "#0b0d12", fg: "#f7f5ef", accent: "#ffd447", secondary: "#8ecae6" },
@@ -355,6 +396,13 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
       ],
     });
     await writeJsonAtomic(path.join(workspace, "ultra.json"), project);
+    expect(await pathExists(path.join(workspace, "plan.json"))).toBe(false);
+    expect(await pathExists(path.join(workspace, "approval.json"))).toBe(false);
+    const status = await runCliEnv(dir, ["status", "--json"], FAST, 120_000);
+    expect(status.code, status.stderr).toBe(0);
+    const statusJson = JSON.parse(status.stdout);
+    expect(statusJson.processMode).toBe("clone-reference");
+    expect(statusJson.nextCommand).not.toMatch(/approve|plan-init|preprod/i);
 
     const build = await runCliEnv(dir, ["build"], FAST, 300_000);
     expect(build.code, build.stderr).toBe(0);
@@ -429,6 +477,7 @@ describe("phase 11 — studio harness, pre-prod approval, 4K mastering + editabl
     const guardJson = JSON.parse(guard.stdout);
     expect(guardJson.ok).toBe(true);
     expect(guardJson.errors).toEqual([]);
+    expect(await pathExists(path.join(workspace, "approval.json"))).toBe(false);
   });
 
   it("runs rag, context-pack and preprod-render from the zero-install cloud zip", async () => {

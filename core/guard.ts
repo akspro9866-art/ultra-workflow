@@ -3,7 +3,8 @@ import path from "node:path";
 import type { UltraProjectT } from "./schema.js";
 import { loadProject } from "./project.js";
 import { resolveAssetPath, resolveSourceClipPath } from "./assets.js";
-import { loadPlan } from "./preprod.js";
+import { checkApprovalGate, loadPlan } from "./preprod.js";
+import { resolveProcessMode } from "./state.js";
 import { resolveAspectProfile } from "./safe-zones.js";
 import { stylesRoot } from "./style-pack.js";
 import { installRoot } from "./env.js";
@@ -140,6 +141,13 @@ export async function runGuard(workspace: string, buildDir: string, stage: Guard
   }
 
   if (stage === "delivery") {
+    const mode = await resolveProcessMode(workspace, project);
+    if (mode === "edit-in-style") {
+      const gate = await checkApprovalGate(workspace, { mode, buildDir, requireArtifacts: false });
+      if (!gate.ok) {
+        errors.push({ check: "approval", detail: `Process 2B requires a verified approval.json: ${gate.message}` });
+      }
+    }
     const deliveryFile = path.join(buildDir, "delivery-manifest.json");
     if (!(await pathExists(deliveryFile))) {
       errors.push({ check: "delivery", detail: "build/delivery-manifest.json missing — run `ultra render --4k`" });

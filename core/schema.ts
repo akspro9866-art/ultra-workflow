@@ -335,6 +335,8 @@ export const MetaSpec = z.object({
   aspectProfile: AspectProfile.optional(),
   /** Delivery master target; proxy builds still iterate at lower resolution. */
   deliveryResolution: z.enum(["4k", "1080p"]).optional(),
+  /** Active workflow: pre-prod approval is required ONLY for edit-in-style. */
+  processMode: z.enum(["extract-style", "clone-reference", "edit-in-style"]).optional(),
 });
 
 export const UltraProject = z.object({

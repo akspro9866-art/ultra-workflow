@@ -1,8 +1,10 @@
-# Clone Reference Skill
+# Clone Reference Skill — Process 2A (autonomous, NO approval pause)
 
-1. Probe the reference; plan the hook/body/outro with measured ASL, cuts, palettes and sound.
-2. `ultra plan-init --mode clone --aspect <ref aspect>`; build a truthful storyboard and mood board.
-3. Wait for approval; `ultra approve --by user`.
-4. Assets: native tools / synth-audio / 3D graphs; `ultra validate-assets`.
-5. `ultra build --proxy` -> `ultra verify <ref.mp4>`; patch or `ultra ralph auto-fix` until stutterEvents 0 and lint/style pass.
-6. `ultra render --4k` -> `ultra export-project` -> `ultra guard --stage delivery`.
+No `plan.json`, moodboard, storyboard, `approve` or approval wait belongs in this process.
+
+1. `ultra probe reference.mp4` — measure cuts, ASL, palettes, audio envelope.
+2. Author `DESIGN.md`, Motion.md and `ultra.json` replicating the reference; `ultra validate-spec`.
+3. `ultra asset-plan` -> native assets / `ultra synth-audio` -> `ultra validate-assets`.
+4. `ultra build --proxy` -> `ultra verify reference.mp4`; patch or `ultra ralph auto-fix` until `stutterEvents === 0` and lint passes.
+5. `ultra render --4k` -> exact 4K master + `delivery-manifest.json`.
+6. `ultra export-project` -> `ultra guard --stage delivery` -> deliver MP4 + editable project.

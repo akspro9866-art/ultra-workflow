@@ -57,27 +57,33 @@ Ready-to-paste ChatGPT prompts live in `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.t
 `prompts/CHATGPT_PROCESS2A_CLONE_REFERENCE.txt`,
 `prompts/CHATGPT_PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt`.
 
-## v6 master entry — Studio Harness + Pre-Prod Approval
+## v6.1 master entry — Storyboard gate for Process 2B only
 
 `AGENTS.md` is the universal contract; `.ultra/rules/*` are the mandatory rules and
-`.ultra/skills/*` are the process playbooks. Load them before planning.
+`.ultra/skills/*` are the process playbooks.
 
-**HARD GATE:** before any `build` / `verify` / `render`:
-1. `$ULTRA plan-init ...` and author a truthful `workspace/plan.json`.
+**SCOPE:** the Mood Board + Storyboard Approval Gate applies **ONLY to Process 2B
+(`edit-in-style`, "Edit My Own Footage in Style")**. Process 1 (`extract-style`)
+and Process 2A (`clone-reference`) run autonomously start-to-finish with NO
+storyboard, mood board or approval pause.
+
+### Process 2B — gated
+1. `$ULTRA plan-init --mode edit-in-style ...` → truthful `workspace/plan.json`.
 2. `$ULTRA preprod-render` → `build/preprod/moodboard.png` + `storyboard*.png`.
-3. SHOW both images to the user, WAIT for explicit approval.
-4. `$ULTRA approve --by user` (stores SHA-256 of plan.json + ultra.json).
+3. SHOW both images, WAIT for explicit user approval, then `$ULTRA approve --by user`.
+4. Build/render fail until the PNGs exist and the approval SHA-256 matches plan.json + ultra.json. Never self-approve.
+5. Assets → `build --proxy` → `verify`/`ralph auto-fix` → `render --4k` → `export-project` → `guard --stage delivery`.
 
-Build/render fail when approval is missing or the hash changed. Never self-approve.
-Use `$ULTRA context-pack --stage preprod` at the start of every long chat, and
-`$ULTRA rag query "<need>"`, `$ULTRA orchestrate --status`, `$ULTRA status --json`
-to stay grounded.
+### Process 2A — autonomous
+`probe` → DESIGN/ultra.json → `validate-spec` → `asset-plan` → `build --proxy` →
+`verify`/`ralph` → `render --4k` → `export-project` → `guard --stage delivery`.
+No plan/approval required.
 
-After approval:
-- assets → `$ULTRA validate-assets`
-- iterate `$ULTRA build --proxy` → `$ULTRA verify ...` or `$ULTRA ralph auto-fix`
-- master `$ULTRA render --4k` (hybrid default; strategy in delivery-manifest.json)
-- `$ULTRA export-project` → `$ULTRA guard --stage delivery` (must exit 0)
+### Process 1 — autonomous
+`style-probe` → distill 8 groups → `style-validate` → `style-export`. No plan/approval required.
+
+Use `$ULTRA context-pack --stage <stage>`, `$ULTRA rag query "<need>"`,
+`$ULTRA orchestrate --status`, and `$ULTRA status --json` to stay grounded.
 
 ## v5 studio additions (always use when available)
 

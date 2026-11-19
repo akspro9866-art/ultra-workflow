@@ -1,3 +1,5 @@
+SCOPE: this is Process 2A (clone-reference) — NO pre-prod storyboard/moodboard/approval pause. Run probe -> build -> verify -> 4K render -> export -> guard autonomously.
+
 CHATGPT · PROCESS 2A — CLONE A REFERENCE VIDEO 1:1 (native images + synth-audio + deterministic render + Rule 5)
 
 Repo: https://github.com/akspro9866-art/ultra-workflow · Zero-install/offline/zero-API: `curl -L -o ultra-workflow-cloud.zip https://raw.githubusercontent.com/akspro9866-art/ultra-workflow/main/dist/ultra-workflow-cloud.zip` (or upload the zip), `unzip -q ultra-workflow-cloud.zip -d ultra`, `node ultra/ultra.mjs doctor --json --host chatgpt`.
@@ -7,9 +9,9 @@ Repo: https://github.com/akspro9866-art/ultra-workflow · Zero-install/offline/z
    - image/illustration/png_alpha → ChatGPT Image Generation (or clean Python/SVG), save to targetPath.
    - video B-roll → generate ONE crisp 16:9 keyframe image; enginePayload/layer will animate it with the deterministic 2.5D rig (chatgptStrategy native-image-plus-2.5d-rig).
    - sfx/music → run `node ultra/ultra.mjs synth-audio --preset <preset> --out <targetPath> [--bpm --mood]` (or `--from-assets`).
-3. `validate-assets`, then `build` (full-cdp uses HyperFrames/Three.js; browserless-py uses py-canvas deterministically — same spec).
-4. `verify <ref.mp4>`: inspect every build/audit-frames/pair_*.png + verify-report.json; stutterEvents must be 0, rubric ≥90. Patch weak scenes via workspace/patch.json + `patch`/`build`/`verify` (≤3 rounds).
-5. `render` only after PASS; deliver build/ultra-final.mp4 + rubric scores + engine table + patch history. No AI APIs, no API keys, no npm install.
+3. `validate-assets`, then `build --proxy` (full-cdp uses HyperFrames/Three.js; browserless-py uses py-canvas deterministically — same spec). Process 2A requires NO plan, moodboard, storyboard or approval.
+4. `verify <ref.mp4>`: inspect every build/audit-frames/pair_*.png + verify-report.json; stutterEvents must be 0, rubric ≥90. Patch weak scenes via workspace/patch.json + `patch`/`build --proxy`/`verify` or `ralph auto-fix` (≤3 rounds).
+5. `render --4k` only after PASS → `export-project` → `guard --stage delivery`; deliver build/ultra-final.mp4 + editable-project.zip + rubric scores + engine table + patch history. No AI APIs, no API keys, no npm install.
 
 V5 STUDIO COMMANDS (use these — do not guess state):
 - `status --json`: call at chat start and after every long step; returns detected process, completed stages, pending assets, draft/verify state and the exact `nextCommand`.
@@ -20,9 +22,9 @@ V5 STUDIO COMMANDS (use these — do not guess state):
 - `ULTRA_FORCE_TIER=full-cdp|browserless-py|ffmpeg-only` forces a render tier for deterministic debugging (ffmpeg-only is pure FFmpeg with bundled TTFs).
 - Linux CI badge: https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg
 
-V6 PRE-PRODUCTION GATE (mandatory before ANY build/verify/render):
-1. `plan-init [--mode clone|edit-in-style] [--style <slug>] [--aspect 16:9|9:16|1:1] [--resolution 4k|1080p]` then fill the real concept/palette/typography/storyboard in workspace/plan.json.
-2. `preprod-render` -> build/preprod/moodboard.png + storyboard*.png. Show BOTH to the user and WAIT for explicit approval; only then run `approve --by user`. Build/render are hard-blocked on a matching planHash.
-3. After approval: assets -> `build --proxy` -> `verify` / `ralph auto-fix` (stutterEvents 0, lint pass, score >= 90).
-4. Master: `render --4k` (default hybrid; strategy logged in delivery-manifest.json) -> `export-project` (FCPXML 1.10 + OTIO + project.ultra.json + offline index.html + CRC-verified zip) -> `guard --stage delivery` must exit 0.
-V6 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.
+V6.1 PRE-PRODUCTION GATE — PROCESS 2B (edit-in-style) ONLY:
+The Mood Board + Storyboard approval pause applies ONLY to Process 2B ("Edit My Own Footage in Style").
+- Process 1 (extract-style) and Process 2A (clone-reference) MUST run autonomously end-to-end. NEVER create or require plan.json, moodboard, storyboard or approval for them.
+- Process 2B: `plan-init --mode edit-in-style` -> fill the real plan -> `preprod-render` -> show build/preprod/moodboard.png + storyboard*.png -> WAIT for explicit user approval -> `approve --by user`. `build`/`render` are hard-blocked on a matching planHash and rendered preprod images.
+- `ultra.json.meta.processMode` / workspace/state.json track `extract-style|clone-reference|edit-in-style`; `--require-approval` can force the gate, `--skip-approval` is test-only.
+V6.1 tools: `context-pack --stage preprod|assets|build|verify|fix|master --budget-tokens 3500`, `rag query "<query>" [--kind style|motif|sfx|rule|skill|effect] [--aspect ...]`, `orchestrate --status [--json]`, `ralph init|auto-fix|status`, `guard --stage plan|build|verify|delivery [--json]`.

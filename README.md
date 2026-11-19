@@ -98,12 +98,26 @@ Presets — SFX: `whoosh`, `whoosh-fast`, `sub-hit`, `riser`, `pop`, `ui-click`,
 `ambient-tech`, `minimal-tension`. Output is 48 kHz 16-bit stereo WAV with
 soft-clipped, dither-added broadcast levels.
 
+## v6.1 — process-scoped approval gate
+
+Mood board + storyboard approval applies **only to Process 2B (`edit-in-style`)**.
+Process 1 (`extract-style`) and Process 2A (`clone-reference`) run autonomously
+from start to finish without plan/moodboard/storyboard/approval. Build/render
+enforce the scoped gate from `meta.processMode` / `workspace/state.json`; `--require-approval`
+forces it, `--skip-approval` is test-only. `status`, `orchestrate` and `context-pack`
+route all three processes independently, and `guard --stage delivery` demands an
+approval only for edit-in-style.
+
 ## v6 — Studio harness, pre-prod approval, 4K mastering, editable delivery
 
-- **Pre-Production Approval Gate** — `plan-init` writes a strict `plan.json` + `PLAN.md`;
-  `preprod-render` emits `build/preprod/moodboard.png` + `storyboard*.png` with bundled
-  fonts on every tier (pure FFmpeg). `build`/`render` are hard-blocked until
+- **Pre-Production Approval Gate — Process 2B ONLY** — applies only to
+  `edit-in-style` ("Edit My Own Footage in Style"). `plan-init --mode edit-in-style`
+  writes a strict `plan.json` + `PLAN.md`; `preprod-render` emits
+  `build/preprod/moodboard.png` + `storyboard*.png` with bundled fonts on every tier
+  (pure FFmpeg). Build/render stay blocked until those images exist and
   `approve --by user` stores the SHA-256 of plan.json + ultra.json; edits invalidate it.
+  **Process 1 (Extract Style) and Process 2A (Clone Reference) are exempt and run
+  autonomously with no plan, storyboard or approval pause.**
 - **4K mastering** — `meta.deliveryResolution: "4k"` or `render --4k` produces exact
   `3840x2160` / `2160x3840` / `2160x2160`, CFR yuv420p H.264 High@L5.1 CRF16,
   AAC 48 kHz stereo 320k, +faststart, with a post-render ffprobe assertion and
@@ -132,11 +146,16 @@ soft-clipped, dither-added broadcast levels.
   delivery-manifest and the editable zip. It exits non-zero on any false claim.
 
 ```bash
+# Process 2B only — gated
 ultra plan-init --mode edit-in-style --style punchy-shortform --aspect 9:16 --resolution 4k
 ultra preprod-render        # show moodboard + storyboard; WAIT for the user
 ultra approve --by user
 ultra build --proxy && ultra verify --style punchy-shortform
 ultra ralph init --max-iter 5 --min-score 90 && ultra ralph auto-fix
+ultra render --4k && ultra export-project && ultra guard --stage delivery
+
+# Process 2A — autonomous (no plan/approval)
+ultra probe ref.mp4 && ultra build --proxy && ultra verify ref.mp4
 ultra render --4k && ultra export-project && ultra guard --stage delivery
 ```
 
@@ -240,7 +259,7 @@ npm run setup:engines
 | phase8 | **dual-process style system**: style-probe → pack validate/export/import → raw-probe silence edit plan → sourceClip build → `verify --style` compliance + style-match.png → render |
 | phase9 | **ChatGPT container simulation**: zero-install zip + `ULTRA_NO_BROWSER=1` → `renderTier: browserless-py` → synth-audio WAVs (ffprobe 48k/2ch) → py-canvas multi-scene build (sourceClip + kinetic title + revideo chart + alpha wireframe) → verify (stutterEvents 0, ffmpeg audit pairs) → render |
 | phase10 | **production hardening**: bundled fonts in zip with zero CRLF scripts, all 3 built-in packs validate, SRT + forced-alignment captions with 9:16 safe zones + danger-zone lint, live `ULTRA_FORCE_TIER=ffmpeg-only` build/verify/render, `status --json` stage tracking |
-| phase11 | **studio harness**: BM25 RAG + context-pack budget + guard grounding failures, moodboard/storyboard + approval hash gate, Ralph deterministic self-heal, exact 4K master (3840x2160, CFR yuv420p, AAC 48k stereo) + FCPXML/OTIO/editable zip + delivery guard, and isolated zero-install rag/context/preprod-render |
+| phase11 | **studio harness + process-scoped gate**: BM25 RAG + context-pack budget + guard grounding failures; **2B** moodboard/storyboard blocks build+render until approval then succeeds; **2A** build/verify/4K/export/delivery-guard with no plan or approval and status never waits; **Process 1** style-probe → validate → export with no approval; Ralph self-heal; 4K FCPXML/OTIO/editable zip; isolated zero-install rag/context/preprod-render |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs

@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathExists, readJson } from "./util.js";
+import { checkApprovalGate } from "./preprod.js";
+import { resolveProcessMode } from "./state.js";
 
 /* ============================================================================
  * Agent state tracker — `ultra status`
@@ -20,6 +22,7 @@ export interface StatusStage {
 export interface StatusReport {
   updatedAt: string;
   process: WorkflowProcess;
+  processMode: WorkflowProcess;
   workspace: string;
   buildDir: string;
   styleSlug: string | null;
@@ -139,13 +142,16 @@ export async function buildStatus(options: StatusOptions = {}): Promise<StatusRe
   const sourceClipScenes = Boolean(project?.scenes?.some((scene) => scene && scene.sourceClip !== undefined));
   const hasProbe = await pathExists(probeFile);
   const hasDesign = await pathExists(path.join(workspace, "DESIGN.md"));
-  const processKind: WorkflowProcess = hasAggregate
-    ? "extract-style"
-    : hasRawPlan || sourceClipScenes
-      ? "edit-in-style"
-      : project || hasProbe || hasDesign
-        ? "clone-reference"
-        : "uninitialized";
+  const explicitMode = await resolveProcessMode(workspace, project as { meta?: { processMode?: "extract-style" | "clone-reference" | "edit-in-style" } } | null);
+  const processKind: WorkflowProcess = explicitMode
+    ? explicitMode
+    : hasAggregate
+      ? "extract-style"
+      : hasRawPlan || sourceClipScenes
+        ? "edit-in-style"
+        : project || hasProbe || hasDesign
+          ? "clone-reference"
+          : "uninitialized";
 
   const styleSlug = hasRawPlan
     ? await readJson(rawPlan)
@@ -219,6 +225,25 @@ export async function buildStatus(options: StatusOptions = {}): Promise<StatusRe
     const captionsExists = await pathExists(captionsFile);
     const requiredAssets = project?.assets?.length ?? 0;
     const assetsDone = project ? requiredAssets === 0 || pendingAssets === 0 : pendingAssets === 0;
+    const planFile = path.join(workspace, "plan.json");
+    const planExists = await pathExists(planFile);
+    const preprodDir = path.join(buildDir, "preprod");
+    const moodboardExists = await pathExists(path.join(preprodDir, "moodboard.png"));
+    const storyboardExists = (await fs.readdir(preprodDir).catch(() => [] as string[])).some((name) => /^storyboard(-\d+)?\.png$/i.test(name));
+    const gate = planExists ? await checkApprovalGate(workspace, { mode: "edit-in-style", buildDir, requireArtifacts: false }) : null;
+    let preprodBlocked = false;
+    if (planExists) {
+      stages.push({ name: "pre-production plan (2B)", done: true, path: planFile });
+      stages.push({ name: "mood board (2B)", done: moodboardExists, path: path.join(preprodDir, "moodboard.png") });
+      stages.push({ name: "storyboard (2B)", done: storyboardExists, path: preprodDir });
+      stages.push({
+        name: "plan approval (2B)",
+        done: gate?.ok === true,
+        path: path.join(workspace, "approval.json"),
+        ...(gate?.ok ? { note: `approved by ${gate.approval?.approvedBy ?? "?"}` } : { note: gate?.code ?? "missing" }),
+      });
+      preprodBlocked = !moodboardExists || !storyboardExists || !gate?.ok;
+    }
     stages.push({ name: "installed style pack", done: styles > 0, path: path.join(cwd, "styles"), note: `${styles} pack(s)` });
     stages.push({ name: "raw-probe edit plan", done: hasRawPlan, path: rawPlan });
     stages.push({
@@ -241,13 +266,18 @@ export async function buildStatus(options: StatusOptions = {}): Promise<StatusRe
       ...(verifyPass === true ? { note: verifyScoreValue !== null ? `score ${verifyScoreValue}` : "pass" } : {}),
     });
 
-    if (styles === 0) nextCommand = "ultra style-list  # import a Style Pack first: ultra style-import <zip> --repack";
+    if (planExists && !moodboardExists) nextCommand = "ultra preprod-render  # then show moodboard.png + storyboard.png to the user";
+    else if (planExists && !storyboardExists) nextCommand = "ultra preprod-render  # then show storyboard.png to the user";
+    else if (planExists && gate && !gate.ok) nextCommand = "show build/preprod/moodboard.png + storyboard*.png → WAIT for user → ultra approve --by user";
+    else if (!planExists && !draftExists && verifyPass !== true) nextCommand = "ultra plan-init --mode edit-in-style  # Process 2B pre-production gate";
+    else if (styles === 0) nextCommand = "ultra style-list  # import a Style Pack first: ultra style-import <zip> --repack";
     else if (!hasRawPlan) nextCommand = "ultra raw-probe my_video.mp4 --style <slug> --aspect 9:16";
     else if (!project) nextCommand = "write workspace/ultra.json using workspace/raw-probe/raw-edit-plan.json + captions.json, then ultra validate-spec";
     else if (!assetsDone) nextCommand = "ultra asset-plan --host chatgpt && ultra validate-assets";
     else if (!draftExists) nextCommand = "ultra build";
     else if (verifyPass !== true) nextCommand = styleSlug ? `ultra verify --style ${styleSlug}` : "ultra verify --style <slug>";
     else nextCommand = "ultra render";
+    void preprodBlocked;
   } else {
     const requiredAssets = project?.assets?.length ?? 0;
     const assetsDone = project ? requiredAssets === 0 || pendingAssets === 0 : pendingAssets === 0;
@@ -279,6 +309,7 @@ export async function buildStatus(options: StatusOptions = {}): Promise<StatusRe
   return {
     updatedAt: new Date().toISOString(),
     process: processKind,
+    processMode: processKind,
     workspace,
     buildDir,
     styleSlug,

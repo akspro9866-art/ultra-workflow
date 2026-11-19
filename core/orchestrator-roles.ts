@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { checkApprovalGate, loadPlan } from "./preprod.js";
 import { loadProject } from "./project.js";
-import { readState, writeState } from "./state.js";
+import { readState, resolveProcessMode, writeState } from "./state.js";
 import { pathExists } from "./util.js";
 
 export interface RoleSpec {
@@ -76,24 +76,30 @@ export interface RoleStatus {
 }
 
 export async function getRoleStatus(workspace: string, buildDir: string): Promise<RoleStatus> {
-  const plan = await loadPlan(workspace).catch(() => null);
-  const gate = await checkApprovalGate(workspace);
   const project = await loadProject(workspace).catch(() => null);
+  const plan = await loadPlan(workspace).catch(() => null);
+  const mode = await resolveProcessMode(workspace, project);
+  const gate = await checkApprovalGate(workspace, { mode });
   let role = ROLES[0] as RoleSpec;
   let nextCommand = "ultra plan-init";
   let stage = "preprod";
 
-  if (plan && gate.ok && gate.required) {
-    stage = "assets";
-    role = ROLES[1] as RoleSpec;
-    nextCommand = "ultra asset-plan && ultra validate-assets";
-  }
-  if (plan && !gate.ok) {
-    stage = "preprod";
+  if (mode === "extract-style") {
     role = ROLES[0] as RoleSpec;
-    nextCommand = "ultra preprod-render && ultra approve --by user";
-  }
-  if (project && gate.ok) {
+    stage = "extract";
+    nextCommand = await pathExists(path.join(workspace, "style-probe", "aggregate.json"))
+      ? "author style.json/STYLE.md/motifs → ultra style-validate <dir> → ultra style-export <dir>"
+      : "ultra style-probe <ref1..refN>";
+  } else if (mode === "edit-in-style" && !gate.ok) {
+    role = ROLES[0] as RoleSpec;
+    stage = "preprod";
+    nextCommand =
+      gate.code === "missing" && !plan
+        ? "ultra plan-init --mode edit-in-style"
+        : gate.code === "preprod-missing"
+          ? "ultra preprod-render  → show moodboard + storyboard → WAIT for approval → ultra approve --by user"
+          : "ultra approve --by user";
+  } else if (project) {
     const draftExists = await pathExists(path.join(buildDir, "draft.mp4"));
     const verifyExists = await pathExists(path.join(buildDir, "verify-report.json"));
     const deliveryExists = await pathExists(path.join(buildDir, "delivery-manifest.json"));
@@ -115,23 +121,10 @@ export async function getRoleStatus(workspace: string, buildDir: string): Promis
       role = ROLES[4] as RoleSpec;
       nextCommand = "ultra guard --stage delivery";
     }
-  } else if (project && !plan) {
-    // Legacy 2A/2B flow without a plan file is still supported.
-    const draftExists = await pathExists(path.join(buildDir, "draft.mp4"));
-    const verifyExists = await pathExists(path.join(buildDir, "verify-report.json"));
-    if (!draftExists) {
-      stage = "build";
-      role = ROLES[2] as RoleSpec;
-      nextCommand = "ultra build --proxy";
-    } else if (!verifyExists) {
-      stage = "verify";
-      role = ROLES[3] as RoleSpec;
-      nextCommand = "ultra verify <reference.mp4>";
-    } else {
-      stage = "master";
-      role = ROLES[4] as RoleSpec;
-      nextCommand = "ultra render --4k && ultra export-project";
-    }
+  } else {
+    stage = "build";
+    role = ROLES[2] as RoleSpec;
+    nextCommand = mode === "clone-reference" ? "write workspace/ultra.json → ultra validate-spec → ultra build --proxy" : "ultra probe <reference.mp4>";
   }
 
   const state = await readState(workspace);

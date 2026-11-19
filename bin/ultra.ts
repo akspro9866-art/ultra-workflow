@@ -59,6 +59,7 @@ import { loadRagIndex, queryRag } from "../core/rag.js";
 import { buildContextPack, type ContextStage } from "../core/context-pack.js";
 import { getRoleStatus } from "../core/orchestrator-roles.js";
 import { autoFixRalph, initRalph, readRalphState } from "../core/ralph.js";
+import { patchState, resolveProcessMode, setProcessMode } from "../core/state.js";
 
 class CliError extends Error {}
 
@@ -272,6 +273,7 @@ program
     await ensureDir(workspace);
     const ref = path.resolve(reference);
     const result = await probeReference(ref, workspace);
+    await setProcessMode(workspace, "clone-reference");
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -338,10 +340,17 @@ program
   .option("--proxy", "fast proxy render (max 1280px) with exact aspect for cloud iteration")
   .option("--resolution <resolution>", "proxy|1080p|4k render size override")
   .option("--skip-approval", "test-only: bypass the pre-production approval gate")
-  .action(async (options: { strictEngine?: boolean; proxy?: boolean; resolution?: string; skipApproval?: boolean }) => {
+  .option("--require-approval", "force the Process 2B approval gate even outside edit-in-style")
+  .action(async (options: { strictEngine?: boolean; proxy?: boolean; resolution?: string; skipApproval?: boolean; requireApproval?: boolean }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
-    const gate = await checkApprovalGate(workspace, { skip: options.skipApproval });
+    const mode = await resolveProcessMode(workspace, project);
+    const gate = await checkApprovalGate(workspace, {
+      skip: options.skipApproval,
+      require: options.requireApproval,
+      mode,
+      buildDir,
+    });
     if (!gate.ok) throw new CliError(approvalErrorMessage(gate));
     const aspect = project.meta.aspectProfile ?? aspectFromDims(project.meta.width, project.meta.height);
     const resolution = options.proxy ? "proxy" : options.resolution;
@@ -527,6 +536,7 @@ program
   .option("--hook-window <sec>", "hook window seconds", "5")
   .action(async (videos: string[], options: { out: string; hookWindow: string }) => {
     const result = await styleProbe(videos, path.resolve(options.out), Number(options.hookWindow));
+    await setProcessMode(paths().workspace, "extract-style");
     const aggregate = result.aggregate;
     console.log(`style-probe → ${path.join(result.outputDir, "aggregate.json")}`);
     console.log(`  references ${aggregate.videos.length} · candidates ${aggregate.candidates.length} · overview ${path.join(result.outputDir, aggregate.overviewPng)}`);
@@ -629,6 +639,7 @@ program
   .action(async (video: string, options: { style: string; out: string; aspect: string }) => {
     if (!isAspectProfile(options.aspect)) throw new CliError(`--aspect must be 9:16, 16:9 or 1:1 (got "${options.aspect}")`);
     const result = await rawProbe(video, options.style, options.out, options.aspect);
+    await setProcessMode(paths().workspace, "edit-in-style");
     console.log(`raw-probe → ${path.join(result.outputDir, "raw-edit-plan.json")}`);
     console.log(`  source ${result.plan.durationSec}s @ ${result.plan.fps}fps · style ${options.style} · aspect ${result.plan.aspect}`);
     console.log(
@@ -848,6 +859,7 @@ program
   .option("--resolution <resolution>", "1080p|4k delivery override")
   .option("--4k-strategy <strategy>", "hybrid|native", "hybrid")
   .option("--skip-approval", "test-only: bypass the pre-production approval gate")
+  .option("--require-approval", "force the Process 2B approval gate even outside edit-in-style")
   .action(async (options: {
     out: string;
     force?: boolean;
@@ -856,10 +868,17 @@ program
     resolution?: string;
     "4kStrategy": string;
     skipApproval?: boolean;
+    requireApproval?: boolean;
   }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
-    const gate = await checkApprovalGate(workspace, { skip: options.skipApproval });
+    const mode = await resolveProcessMode(workspace, project);
+    const gate = await checkApprovalGate(workspace, {
+      skip: options.skipApproval,
+      require: options.requireApproval,
+      mode,
+      buildDir,
+    });
     if (!gate.ok) throw new CliError(approvalErrorMessage(gate));
     const manifestFile = path.join(buildDir, "build-manifest.json");
     if (!(await pathExists(manifestFile))) throw new CliError("No build manifest. Run `ultra build` first.");
