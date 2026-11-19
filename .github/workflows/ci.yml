@@ -99,6 +99,11 @@ jobs:
                   "ultra.mjs",
                   "ultra",
                   "run.sh",
+                  "dist/rag-index.json",
+                  "AGENTS.md",
+                  ".ultra/rules/01-approval-gate.md",
+                  ".ultra/skills/preprod-storyboard/SKILL.md",
+                  ".ultra/agents/director.md",
                   "engines/py-canvas/render_scene.py",
                   "assets/fonts/UltraDisplay-Bold.ttf",
                   "assets/fonts/UltraSans-Regular.ttf",
@@ -123,7 +128,7 @@ jobs:
             node dist/ultra.mjs style-validate "$d"
           done
 
-      - name: Test all 10 TypeScript suites + Python
+      - name: Test all 11 TypeScript suites + Python
         run: npm test
 
       - name: Zero-API / zero-secret security scan

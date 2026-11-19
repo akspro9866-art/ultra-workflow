@@ -306,7 +306,8 @@ export const ffmpegOnlyEngine: SceneEngine = {
 
     for (const el of scene.textElements) {
       const estWidth = estimateTestWidthSafe(el.text, el.sizePx, el.width);
-      if (el.x < -1 || el.y < -1 || el.x + estWidth > width + 1 || el.y + el.sizePx * 1.4 > height + 1) {
+      const estHeight = el.sizePx * el.lineHeight * Math.max(1, el.text.split("\n").length);
+      if (el.x < -1 || el.y < -1 || el.x + estWidth > width + 1 || el.y + estHeight > height + 1) {
         defects.push({
           category: "clip",
           sceneId: scene.id,
@@ -314,6 +315,18 @@ export const ffmpegOnlyEngine: SceneEngine = {
           critical: true,
           detail: `text "${el.id}" extends outside the ${width}x${height} viewport`,
         });
+      }
+      if (aspect.explicit) {
+        const zone = dangerZoneForPixelBox({ x: el.x, y: el.y, width: estWidth, height: estHeight }, aspect.aspect, width, height);
+        if (zone) {
+          defects.push({
+            category: "layout",
+            sceneId: scene.id,
+            frameIndex: 0,
+            critical: false,
+            detail: `text "${el.id}" enters the ${aspect.aspect} ${zone.label} safe-zone`,
+          });
+        }
       }
       const ratio = contrastRatio(el.color, bg);
       if (ratio !== null && ratio < (el.sizePx >= 24 ? 3 : 4.5)) {

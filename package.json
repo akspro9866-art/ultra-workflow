@@ -27,7 +27,9 @@
     "test:phase9": "vitest run --config vitest.config.ts tests/phase9.chatgpt-browserless.test.ts",
     "pack:cloud": "npm run build && node dist/scripts/pack-cloud.js",
     "setup:engines": "node scripts/setup-engines.mjs",
-    "test:phase10": "vitest run --config vitest.config.ts tests/phase10.production-hardening.test.ts"
+    "test:phase10": "vitest run --config vitest.config.ts tests/phase10.production-hardening.test.ts",
+    "test:phase11": "vitest run --config vitest.config.ts tests/phase11.studio-harness.test.ts",
+    "build:rag": "tsx scripts/build-rag-index.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",

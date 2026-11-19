@@ -286,3 +286,80 @@ suites + Python → zero-AI-SDK/zero-secret scan → upload the cloud zip artifa
 zip, all three packs, SRT and forced-alignment captions with 9:16 danger-zone
 lint, the live `ULTRA_FORCE_TIER=ffmpeg-only` build/verify/render path
 (stutterEvents 0, CFR yuv420p), and `status --json` stage tracking.
+
+## 13 · v6 — Studio harness, pre-prod approval, 4K mastering, editable delivery
+
+**Pre-production gate.** `core/preprod-schema.ts` defines a strict plan contract
+(meta/concept/mode/style/aspect/resolution/fps/duration, 2–8 palette entries,
+typography hierarchy, invariants, audio, grade, contiguous shot cards).
+`core/preprod.ts` implements `plan-init` (PLAN.md + plan.json), pure-FFmpeg
+`preprod-render` (moodboard with palette/contrast/type specimens/grade strip and
+up to four style exemplars; storyboard grids with shot timings, aspect-accurate
+wireframes, camera/engine/caption/SFX labels; paginated at 9 shots), and
+`approve`/`revoke` storing SHA-256(plan.json + ultra.json if present).
+`ultra build` and `ultra render` invoke `checkApprovalGate`; missing/revoked/
+changed hashes exit non-zero with a JSON `preprod-approval-required` payload.
+`--skip-approval` is test-only. Legacy projects without plan.json are unaffected.
+
+**4K mastering.** `meta.deliveryResolution` and `build --proxy|--resolution`
+control proxy iteration (max 1280px) vs 4K. `render --4k` targets exact
+3840×2160 / 2160×3840 / 2160×2160 from the aspect profile: `hybrid` (default)
+stitches at source size then encodes with lanczos + accurate_rnd +
+full_chroma_int + subtle unsharp; `native` requires a 4K build. Final encode is
+H.264 High@L5.1, CRF 16, yuv420p TV range bt709, AAC 48 kHz stereo 320k,
++faststart. Post-render `ffprobe` assertions (dimensions, CFR r==avg, pix_fmt,
+audio presence, duration) gate success and are written to
+`build/delivery-manifest.json` with the strategy and source/target sizes.
+
+**Editable export.** `core/project-export.ts` copies referenced assets,
+sourceClips, rendered scene media, custom HTML, captions, bundled fonts, style
+motifs, LUT/grade and docs into `build/editable-project/` with relative paths;
+rewrites `project.ultra.json`; writes FCPXML 1.10 (format/resource/spine clips,
+overlays, audio lanes, markers), OTIO `Timeline.1/Stack.1/Track.1/Clip.1/
+ExternalReference.1` with `metadata.ultra`, and a zero-CDN `index.html`
+inspector; zips and CRC-verifies via the pure Node extractor.
+
+**Studio harness.** `AGENTS.md`, `.ultra/rules/` (01 approval, 02 anti-slop, 03
+zero hallucination, 04 4K/editable), `.ultra/skills/` (preprod, extract, clone,
+edit), `.ultra/agents/` (director, asset-producer, motion-builder, qa-critic,
+mastering-engineer). `core/state.ts` persists `workspace/state.json`.
+`orchestrate --status|--next-role [--json]` reports the active role, I/O
+contract, parallel-safe boundaries and next command.
+
+**Context + RAG.** `core/rag.ts` builds a zero-dependency BM25 index over all
+`styles/*` (style.json + STYLE.md + motifs), `.ultra/{rules,skills,agents}`,
+effect primitives and all 13 synth presets; packed to `dist/rag-index.json`.
+`rag query` filters by kind/aspect and returns scored snippets with relative
+paths. `context-pack --stage ... --budget-tokens` composes only active rules,
+top RAG hits, blockers, on-disk artifact paths and the exact next command,
+enforcing the char/4 token budget.
+
+**Ralph loop.** `core/ralph.ts` baseline-scores the project, then deterministically
+clamps text/caption safe-zone violations, lifts low WCAG contrast from the project
+palette, replaces banned transitions, corrects style loudness, snapshots the best
+project under `.ultra-cache/ralph-best/`, records a score trajectory, and stops
+satisfied/stalled/exhausted with `workspace/ralph-history.md` and a completion
+promise (`verify.pass && stutterEvents==0 && score>=minScore && lint.pass`).
+
+**Guard.** `guard --stage plan|build|verify|delivery` grounds every asset,
+sourceClip, custom scene, captions file, style slug and placeholder token;
+for verify/delivery it audits verify-report, delivery-manifest and the actual
+ffprobe measurements, editable dir/files and CRC zip. Non-zero exit on any lie.
+
+### Honest architecture limitations
+- Web chat platforms execute the five roles sequentially; parallel execution is
+  only honest in multi-agent IDEs. Role contracts mark the parallel-safe pair.
+- Native 4K scene re-render is memory-bound; the default hybrid path upscales the
+  approved proxy with high-quality filters, and the strategy is explicit in the
+  delivery manifest. The output dimensions/fps/audio are still ffprobe-verified.
+- FCPXML/OTIO are structurally validated interchange artifacts; vendor-specific
+  NLE round-trip quirks are not claimed.
+- `guard` verifies grounding and evidence, not subjective taste; rubric/style-match
+  scoring remains agent/human judgment.
+- Ralph repairs mechanical gates only (safe zones, contrast, transitions, loudness,
+  deterministic score regressions); it cannot invent missing creative assets.
+
+`tests/phase11.studio-harness.test.ts` proves RAG ranking + token-budgeted context
++ guard failure on hallucinations; moodboard/storyboard + approval lock; Ralph
+self-heal trajectory; exact 4K master with AAC 48k stereo + FCPXML/OTIO/editable
+zip + delivery guard; and isolated zero-install rag/context/preprod-render.

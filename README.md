@@ -98,6 +98,58 @@ Presets — SFX: `whoosh`, `whoosh-fast`, `sub-hit`, `riser`, `pop`, `ui-click`,
 `ambient-tech`, `minimal-tension`. Output is 48 kHz 16-bit stereo WAV with
 soft-clipped, dither-added broadcast levels.
 
+## v6 — Studio harness, pre-prod approval, 4K mastering, editable delivery
+
+- **Pre-Production Approval Gate** — `plan-init` writes a strict `plan.json` + `PLAN.md`;
+  `preprod-render` emits `build/preprod/moodboard.png` + `storyboard*.png` with bundled
+  fonts on every tier (pure FFmpeg). `build`/`render` are hard-blocked until
+  `approve --by user` stores the SHA-256 of plan.json + ultra.json; edits invalidate it.
+- **4K mastering** — `meta.deliveryResolution: "4k"` or `render --4k` produces exact
+  `3840x2160` / `2160x3840` / `2160x2160`, CFR yuv420p H.264 High@L5.1 CRF16,
+  AAC 48 kHz stereo 320k, +faststart, with a post-render ffprobe assertion and
+  `build/delivery-manifest.json`. `--4k-strategy hybrid` (default) logs the
+  lanczos + accurate_rnd + full_chroma + unsharp upscale; `native` requires a 4K build.
+  `build --proxy` iterates at max 1280px without changing the delivery target.
+- **Editable project export** — `export-project` packages FCPXML 1.10, OTIO JSON,
+  `project.ultra.json` (relative asset paths only), DESIGN/Motion/PLAN, assets,
+  scenes, bundled fonts, motifs, grade LUT, captions, and a zero-CDN `index.html`
+  inspector into a CRC-verified `build/editable-project.zip`.
+- **Studio harness** — root `AGENTS.md` + `.ultra/rules/` (approval gate, anti-slop,
+  zero hallucination, 4K/editable delivery) + `.ultra/skills/` (preprod, extract,
+  clone, edit) + five `.ultra/agents/` role contracts. `orchestrate --status`
+  reports the active role, artifact contract, parallel-safe steps and next command;
+  `workspace/state.json` tracks stage, approval, artifacts and Ralph state.
+- **Context + RAG** — `ultra rag query` runs an offline BM25 index over styles,
+  motifs, rules, skills, effects and all 13 synth presets (`dist/rag-index.json`).
+  `context-pack --stage ... --budget-tokens N` writes a deterministic brief with only
+  active rules, top RAG hits, blockers, verified paths and the exact next command.
+- **Ralph loop** — `ralph init/auto-fix/status` deterministically clamps captions and
+  text into safe zones, lifts WCAG contrast from the project palette, replaces banned
+  transitions, corrects loudness, snapshots the best project and stops with
+  `ralph-history.md` when stalled/regressed or the completion promise is met.
+- **Guard** — `guard --stage plan|build|verify|delivery` grounds every asset/sourceClip/
+  custom scene/placeholder and checks evidence against ffprobe, verify-report,
+  delivery-manifest and the editable zip. It exits non-zero on any false claim.
+
+```bash
+ultra plan-init --mode edit-in-style --style punchy-shortform --aspect 9:16 --resolution 4k
+ultra preprod-render        # show moodboard + storyboard; WAIT for the user
+ultra approve --by user
+ultra build --proxy && ultra verify --style punchy-shortform
+ultra ralph init --max-iter 5 --min-score 90 && ultra ralph auto-fix
+ultra render --4k && ultra export-project && ultra guard --stage delivery
+```
+
+### Honest architecture limitations
+- Cloud chat roles execute **sequentially**; only multi-agent IDEs can truly parallelize
+  director + asset-producer (the contracts and parallel-safe boundaries are documented).
+- True **native** 4K re-render is memory-heavy; the cloud-safe default is hybrid upscale,
+  logged explicitly. 4K assertions still verify the exact delivered dimensions.
+- `guard` catches grounding/evidence lies, not taste; style-match/rubric scoring remains
+  agent/human judgment.
+- FCPXML/OTIO are interchange artifacts validated structurally; NLE-specific quirks and
+  round-trip import are not claimed.
+
 ## v5 — Linux-hardened studio edition
 
 - **Bundled offline typography** — four SIL OFL TTFs in `assets/fonts/`
@@ -156,9 +208,9 @@ cloud-native via `engine: "revideo"` + `enginePayload.sceneType`
 ```bash
 npm install
 npm run typecheck
-npm test                 # all 10 TS suites + Python mock-bpy Blender test
+npm test                 # all 11 TS suites + Python mock-bpy Blender test
 npm run test:python      # py_compile + tests/test_blender_script.py
-npm run pack:cloud       # → dist/ultra-workflow-cloud.zip (≤ 2.2 MiB, LF-normalized)
+npm run pack:cloud       # → dist/ultra.mjs + rag-index.json + cloud zip (≤ 2.5 MiB, LF)
 ```
 
 Requirements (local dev / native engines): Node ≥ 20, FFmpeg + ffprobe on PATH,
@@ -188,6 +240,7 @@ npm run setup:engines
 | phase8 | **dual-process style system**: style-probe → pack validate/export/import → raw-probe silence edit plan → sourceClip build → `verify --style` compliance + style-match.png → render |
 | phase9 | **ChatGPT container simulation**: zero-install zip + `ULTRA_NO_BROWSER=1` → `renderTier: browserless-py` → synth-audio WAVs (ffprobe 48k/2ch) → py-canvas multi-scene build (sourceClip + kinetic title + revideo chart + alpha wireframe) → verify (stutterEvents 0, ffmpeg audit pairs) → render |
 | phase10 | **production hardening**: bundled fonts in zip with zero CRLF scripts, all 3 built-in packs validate, SRT + forced-alignment captions with 9:16 safe zones + danger-zone lint, live `ULTRA_FORCE_TIER=ffmpeg-only` build/verify/render, `status --json` stage tracking |
+| phase11 | **studio harness**: BM25 RAG + context-pack budget + guard grounding failures, moodboard/storyboard + approval hash gate, Ralph deterministic self-heal, exact 4K master (3840x2160, CFR yuv420p, AAC 48k stereo) + FCPXML/OTIO/editable zip + delivery guard, and isolated zero-install rag/context/preprod-render |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs

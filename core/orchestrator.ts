@@ -99,6 +99,7 @@ export async function cacheKeyForScene(
   scene: SceneSpecT,
   workspace: string,
   resolvedEngine: string,
+  renderDims?: { width: number; height: number },
 ): Promise<string> {
   const assetIds = new Set<string>();
   for (const layer of scene.layers) if (layer.assetId) assetIds.add(layer.assetId);
@@ -122,7 +123,13 @@ export async function cacheKeyForScene(
     scene,
     designTokens: project.designTokens,
     colorGrade: project.colorGrade,
-    meta: { fps: project.meta.fps, width: project.meta.width, height: project.meta.height },
+    meta: {
+      fps: project.meta.fps,
+      width: project.meta.width,
+      height: project.meta.height,
+      renderWidth: renderDims?.width ?? project.meta.width,
+      renderHeight: renderDims?.height ?? project.meta.height,
+    },
     renderDuration: round(sceneRenderDuration(project, scene), 6),
     assets: assetHashes,
   };
@@ -159,6 +166,8 @@ export interface BuildOptions {
   workspace: string;
   buildDir: string;
   strictEngine?: boolean;
+  renderWidth?: number;
+  renderHeight?: number;
 }
 
 export function cacheDir(): string {
@@ -183,12 +192,14 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
   let misses = 0;
   const tierInfo = await detectRenderTier();
   const tier = tierInfo.tier;
+  const renderWidth = options.renderWidth ?? project.meta.width;
+  const renderHeight = options.renderHeight ?? project.meta.height;
 
   for (const scene of ordered) {
     const durationSec = round(sceneRenderDuration(project, scene), 6);
     const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
     const resolvedKey: EngineKey = choice.fallback ? (choice.engine.key as EngineKey) : (choice.engine.key as EngineKey);
-    const key = await cacheKeyForScene(project, scene, workspace, resolvedKey);
+    const key = await cacheKeyForScene(project, scene, workspace, resolvedKey, { width: renderWidth, height: renderHeight });
     const ext = scene.alpha ? ".mov" : ".mp4";
     const cacheFile = path.join(cache, `${key}${ext}`);
     const notes: string[] = choice.reason ? [choice.reason] : [];
@@ -209,8 +220,8 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
         outFile: cacheFile,
         durationSec,
         fps: project.meta.fps,
-        width: project.meta.width,
-        height: project.meta.height,
+        width: renderWidth,
+        height: renderHeight,
         alpha: scene.alpha,
       };
       try {
@@ -223,7 +234,7 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
         }
         // Render-time failure: store under the HyperFrames key so a later working
         // native engine is not masked by a stale fallback entry.
-        const fallbackKey = await cacheKeyForScene(project, scene, workspace, "hyperframes");
+        const fallbackKey = await cacheKeyForScene(project, scene, workspace, "hyperframes", { width: renderWidth, height: renderHeight });
         const fallbackFile = path.join(cache, `${fallbackKey}${ext}`);
         notes.push(`${resolvedKey} render failed (${(err as Error).message.split("\n")[0]}); using HyperFrames fallback`);
         const outcome = await hyperframesEngine.renderScene({ ...ctx, outFile: fallbackFile });
@@ -275,8 +286,8 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
     builtAt: new Date().toISOString(),
     version: CACHE_VERSION,
     fps: project.meta.fps,
-    width: project.meta.width,
-    height: project.meta.height,
+    width: renderWidth,
+    height: renderHeight,
     durationSec: project.meta.durationSec,
     draftFile,
     scenes: built,

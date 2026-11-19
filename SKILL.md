@@ -57,6 +57,28 @@ Ready-to-paste ChatGPT prompts live in `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.t
 `prompts/CHATGPT_PROCESS2A_CLONE_REFERENCE.txt`,
 `prompts/CHATGPT_PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt`.
 
+## v6 master entry — Studio Harness + Pre-Prod Approval
+
+`AGENTS.md` is the universal contract; `.ultra/rules/*` are the mandatory rules and
+`.ultra/skills/*` are the process playbooks. Load them before planning.
+
+**HARD GATE:** before any `build` / `verify` / `render`:
+1. `$ULTRA plan-init ...` and author a truthful `workspace/plan.json`.
+2. `$ULTRA preprod-render` → `build/preprod/moodboard.png` + `storyboard*.png`.
+3. SHOW both images to the user, WAIT for explicit approval.
+4. `$ULTRA approve --by user` (stores SHA-256 of plan.json + ultra.json).
+
+Build/render fail when approval is missing or the hash changed. Never self-approve.
+Use `$ULTRA context-pack --stage preprod` at the start of every long chat, and
+`$ULTRA rag query "<need>"`, `$ULTRA orchestrate --status`, `$ULTRA status --json`
+to stay grounded.
+
+After approval:
+- assets → `$ULTRA validate-assets`
+- iterate `$ULTRA build --proxy` → `$ULTRA verify ...` or `$ULTRA ralph auto-fix`
+- master `$ULTRA render --4k` (hybrid default; strategy in delivery-manifest.json)
+- `$ULTRA export-project` → `$ULTRA guard --stage delivery` (must exit 0)
+
 ## v5 studio additions (always use when available)
 
 - **`$ULTRA status --json`** — call it at the start of every turn in a long chat.

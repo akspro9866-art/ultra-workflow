@@ -4,10 +4,11 @@ import { build as esbuild } from "esbuild";
 import { installRoot } from "../core/env.js";
 import { ensureDir, pathExists, rmrf, writeJsonAtomic } from "../core/util.js";
 import { createZip } from "../core/zip.js";
+import { buildRagIndex } from "../core/rag.js";
 
 const CLOUD_PACKAGE = {
   name: "ultra-workflow",
-  version: "5.0.0",
+  version: "6.0.0",
   private: true,
   type: "module",
   description: "Zero-API, zero-install deterministic video recreation + style-pack workflow for agent chat sandboxes.",
@@ -95,6 +96,8 @@ async function main(): Promise<void> {
   }
 
   const bundleBytes = await bundleCli(root, dist);
+  const ragIndex = await buildRagIndex(root);
+  await writeJsonAtomic(path.join(dist, "rag-index.json"), ragIndex);
   // Keep clone-and-run launchers next to the bundle at the dist root (tracked in git).
   await fs.writeFile(path.join(dist, "ultra"), LAUNCHER_SH, "utf8");
   await fs.chmod(path.join(dist, "ultra"), 0o755);
@@ -126,9 +129,12 @@ async function main(): Promise<void> {
     path.join(stage, "engines", "py-canvas", "render_scene.py"),
   );
 
-  for (const doc of ["SKILL.md", "CHAT_START_PROMPT.txt", "SPEC.md", "README.md"]) {
+  for (const doc of ["SKILL.md", "AGENTS.md", "CHAT_START_PROMPT.txt", "SPEC.md", "README.md"]) {
     await fs.copyFile(path.join(root, doc), path.join(stage, doc));
   }
+  const ultraDocs = await copyDir(path.join(root, ".ultra"), path.join(stage, ".ultra"));
+  await ensureDir(path.join(stage, "dist"));
+  await fs.copyFile(path.join(dist, "rag-index.json"), path.join(stage, "dist", "rag-index.json"));
 
   // v3: installed Style Packs + ready-to-paste prompts travel with the bundle.
   let styleCount = 0;
@@ -167,20 +173,20 @@ async function main(): Promise<void> {
   const zip = await createZip(files, zipPath);
 
   const zipMiB = zip.bytes / (1024 * 1024);
-  if (zipMiB > 2.2) {
-    throw new Error(`cloud zip exceeds the 2.2 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
+  if (zipMiB > 2.5) {
+    throw new Error(`cloud zip exceeds the 2.5 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
   }
-  if (zipMiB > 1.6) {
-    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v5 target is <= 2.2 MiB)`);
+  if (zipMiB > 2.0) {
+    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v6 target is <= 2.5 MiB)`);
   }
   await rmrf(stage);
 
   console.log(`pack:cloud → ${zipPath}`);
   console.log(
-    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · fonts ${fontCount} · styles ${styleCount} · prompts ${promptCount} · LF-normalized ${normalized} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
+    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · fonts ${fontCount} · styles ${styleCount} · prompts ${promptCount} · ultra docs ${ultraDocs} · rag ${ragIndex.docs.length} docs · LF-normalized ${normalized} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
   );
   console.log(
-    `  contents: ultra.mjs, ultra, run.sh, ultra.cmd, package.json, assets/vendor/, assets/fonts/ (Ultra Display/Sans/Mono), styles/, prompts/, engines/blender+py-canvas scripts, docs`,
+    `  contents: ultra.mjs, ultra, run.sh, ultra.cmd, package.json, assets/vendor/, assets/fonts/ (Ultra Display/Sans/Mono), styles/, prompts/, .ultra/ (rules+skills+agents), AGENTS.md, dist/rag-index.json, engines/blender+py-canvas scripts, docs`,
   );
 }
 

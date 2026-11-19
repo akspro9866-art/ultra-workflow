@@ -1,0 +1,535 @@
+{
+  "version": 1,
+  "builtAt": "2026-11-19T18:54:50.347Z",
+  "docs": [
+    {
+      "id": "style:dark-tech-launch",
+      "kind": "style",
+      "title": "Dark Tech Launch",
+      "path": "styles/dark-tech-launch/style.json",
+      "aspect": "16:9",
+      "text": "Dark Tech Launch\n16:9 Apple/Linear-inspired SaaS launch: obsidian surfaces, specular glow, 2.5D camera glides, beat-synced pulses and floating UI frames.\n# Dark Tech Launch — 16:9 product-launch grammar\n\nAn obsidian launch system for SaaS and hardware reveals. It borrows the restraint of Apple keynotes and the precision of Linear's product films: one claim, one product frame, one luminous accent. Motion is 2.5D and deliberate; nothing orbits, nothing bounces.\n\n## Pacing\n\nHook **1.5–2.5s**, body **2.5–4.5s**, outro **2.5–4s**, static hold ceiling **4s**. Trim silence at **200ms**; keep short **80ms J-cuts** and **160ms L-cuts** for tight narration. Half the cuts should land on a beat.\n\n## Type & captions\n\nUltra Display for product claims, set in sentence case at generous size. Ultra Sans for captions in **3–6 word** chunks with the active word shifted to mint. Mono labels carry specs and timestamps. Captions sit at **70–84% height**, inside the 16:9 title-safe box.\n\n## Motion\n\n`easeInOutCubic` glides with a **1.00 → 1.10** punch-in ceiling. Two motion-blur samples keep camera moves cinematic. Feature badges float on a 2.5D plane with 12px parallax, and glow pulses sync to the beat — not to wall-clock time.\n\n## Color & texture\n\nObsidian `#07090D`, raised surface `#0E131C`, ice white `#F2F6FF`, steel `#8FA0B8`, mint `#7CF5C7`, electric blue `#4F7CFF`. Grade +0.08 exposure, +16% contrast, a −0.08 cooling shift and a **0.30 vignette**. Grain 0.03, halation 0.18 — specular, not smoky.\n\n## Sound\n\n**−14 LUFS**, **90–124 BPM**. Hero → riser, reveal → whoosh, accent → chime, stat → pop. Duck music **12 dB** under voice.\n\n## Non-negotiables\n\nNo rainbow gradients. No orbiting logos. No HUD clutter. No unlabeled benchmark charts. If a UI frame appears, it must show a real interface state with readable labels.\n\npalette #07090d #0e131c #f2f6ff #8fa0b8 #7cf5c7 #4f7cff\naspect 16:9 safe-zone captions hook retention",
+      "metadata": {
+        "slug": "dark-tech-launch",
+        "palette": {
+          "bg": "#07090d",
+          "surface": "#0e131c",
+          "textPrimary": "#f2f6ff",
+          "textMuted": "#8fa0b8",
+          "accent1": "#7cf5c7",
+          "accent2": "#4f7cff"
+        },
+        "typography": {
+          "displayFont": "Ultra Display",
+          "captionFont": "Ultra Sans",
+          "monoFont": "Ultra Mono",
+          "casing": "sentence",
+          "captionChunkWords": [
+            3,
+            6
+          ],
+          "safeZoneYPercent": 82,
+          "activeWordHighlight": "color",
+          "strokePx": 0,
+          "shadowSpec": "0 0 34px rgba(124,245,199,0.28)"
+        }
+      }
+    },
+    {
+      "id": "motif:dark-tech-launch:feature-badge",
+      "kind": "motif",
+      "title": "dark-tech-launch · feature badge",
+      "path": "styles/dark-tech-launch/motifs/feature-badge.html",
+      "aspect": "16:9",
+      "text": "dark-tech-launch 16:9 motif feature-badge.html Feature Badge — dark-tech-launch Feature stack / three guarantees Fast to ship. Impossible to drift. 01 Realtime Scene routing picks the strongest engine that the host can actually run. routing / auto 02 Deterministic Every frame is seeked by index. Identical bytes on every machine, every run. stutter / 0 03 Zero cloud No API keys, no external AI calls. Fonts, audio and motion ship with the repo. api deps / none Dark Tech Launch Feature / 02",
+      "metadata": {
+        "style": "dark-tech-launch",
+        "aspect": "16:9",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "motif:dark-tech-launch:hero-reveal",
+      "kind": "motif",
+      "title": "dark-tech-launch · hero reveal",
+      "path": "styles/dark-tech-launch/motifs/hero-reveal.html",
+      "aspect": "16:9",
+      "text": "dark-tech-launch 16:9 motif hero-reveal.html Hero Reveal — dark-tech-launch Ultra Core / V2 Built for speed. Deterministic rendering, zero external APIs. The engine ships with the repo and runs anywhere. render.tier full-cdp stutter.events 0 loudness −14 LUFS api.deps none Dark Tech Launch Hero / 01",
+      "metadata": {
+        "style": "dark-tech-launch",
+        "aspect": "16:9",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "style:kinetic-editorial",
+      "kind": "style",
+      "title": "Kinetic Editorial",
+      "path": "styles/kinetic-editorial/style.json",
+      "aspect": "16:9",
+      "text": "Kinetic Editorial\n16:9 Vox-style documentary explainer: measured pacing, warm paper palette, underline captions and SVG path-draw callouts.\n# Kinetic Editorial — 16:9 explainer grammar\n\nA documentary explainer system in the Vox tradition: argument first, texture second. Warm paper, charcoal type, one vermilion accent. Chapters are written, not decorated — every card makes a claim before it shows a graphic.\n\n## Pacing\n\n- Hook ASL **1.5–2.5s**, body ASL **2.5–4.5s**, outro **3–5s**. Let a viewer finish a thought; never let a frame sit past **4.5s**.\n- Silence trim at **220ms**, J-cuts **240ms**, L-cuts **300ms**. Audio edits are softer than the shortform system.\n- Beat-snap target **45%** — cut for argument structure, not for every kick drum.\n\n## Type & captions\n\nUltra Display carries chapter titles and pull quotes. Ultra Sans handles captions in **3–6 word** chunks, title case, with a **vermilion underline** on the active word. The caption band sits at **72–86% height**, inside the 16:9 six-percent title-safe perimeter.\n\n## Motion\n\nSlow, confident moves: `easeInOutSine` dominant, punch-ins capped at **1.08**, two motion-blur samples for subtle camera blur. SVG callout arrows draw with a dash offset before the stat lands. Chapter cards rule in from the left margin.\n\n## Color & texture\n\nPaper `#F6F0E6`, aged surface `#E8DFCE`, ink `#1C1B18`, muted pencil `#6A645A`, vermilion `#E4572E`, deep teal `#2F5D62`. Grade adds a warm +0.12 temperature and a light 0.12 vignette. Grain **0.06**, halftone **0.10** at micro scale — printed matter, not a filter.\n\n## Sound\n\n**−14 LUFS**, **80–110 BPM** understated bed. Chapter → chime, data callout → pop, transitions → soft whoosh, UI accents → click. Duck music **14 dB** under narration.\n\n## Non-negotiables\n\nNo neon startup gradients. No caption walls. No whip pans. No stock imagery of handshakes or boardrooms. If a graphic does not advance the argument, cut it.\n\npalette #f6f0e6 #e8dfce #1c1b18 #6a645a #e4572e #2f5d62\naspect 16:9 safe-zone captions hook retention",
+      "metadata": {
+        "slug": "kinetic-editorial",
+        "palette": {
+          "bg": "#f6f0e6",
+          "surface": "#e8dfce",
+          "textPrimary": "#1c1b18",
+          "textMuted": "#6a645a",
+          "accent1": "#e4572e",
+          "accent2": "#2f5d62"
+        },
+        "typography": {
+          "displayFont": "Ultra Display",
+          "captionFont": "Ultra Sans",
+          "monoFont": "Ultra Mono",
+          "casing": "title",
+          "captionChunkWords": [
+            3,
+            6
+          ],
+          "safeZoneYPercent": 84,
+          "activeWordHighlight": "underline",
+          "strokePx": 0,
+          "shadowSpec": "0 2px 10px rgba(0,0,0,0.35)"
+        }
+      }
+    },
+    {
+      "id": "motif:kinetic-editorial:chapter-card",
+      "kind": "motif",
+      "title": "kinetic-editorial · chapter card",
+      "path": "styles/kinetic-editorial/motifs/chapter-card.html",
+      "aspect": "16:9",
+      "text": "kinetic-editorial 16:9 motif chapter-card.html Chapter Card — kinetic-editorial Ultra Editorial 16:9 / Explainer Chapter 01 — The premise The hidden cost of speed. Everyone measures how fast the edit moves. Almost nobody measures what the cut costs the viewer. Written first Kinetic Editorial 00:00 — 00:02",
+      "metadata": {
+        "style": "kinetic-editorial",
+        "aspect": "16:9",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "motif:kinetic-editorial:data-callout",
+      "kind": "motif",
+      "title": "kinetic-editorial · data callout",
+      "path": "styles/kinetic-editorial/motifs/data-callout.html",
+      "aspect": "16:9",
+      "text": "kinetic-editorial 16:9 motif data-callout.html Data Callout — kinetic-editorial Data callout / retention curve 68 % of viewers leave before the first cut. Source: longitudinal shortform review n = 2,480 sessions the drop is not the content — it is the delay Kinetic Editorial Data / 01",
+      "metadata": {
+        "style": "kinetic-editorial",
+        "aspect": "16:9",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "style:punchy-shortform",
+      "kind": "style",
+      "title": "Punchy Shortform",
+      "path": "styles/punchy-shortform/style.json",
+      "aspect": "9:16",
+      "text": "Punchy Shortform\n9:16 retention-first shortform: sub-2s hooks, punch-in zooms, active-word pill captions and hard-cut sound design.\n# Punchy Shortform — 9:16 retention grammar\n\nA shortform system built for the first three seconds. Hooks are blunt, type is enormous, and every cut earns the next hundred milliseconds. Use it for product demos, talking-head edits, list videos and stat-driven explainers that must survive the TikTok / Reels / Shorts feed.\n\n## Pacing\n\n- Hook average shot length: **0.9–1.6s**. Land a claim, a number or a contradiction before the viewer's thumb moves.\n- Body ASL: **1.6–2.8s**. Cut on the beat, never coast past **2.8s** of static frame.\n- Trim silence at **160ms**, keep **120ms J-cuts** and **180ms L-cuts** so audio leads the picture.\n- Aim for **65%** of cuts landing within ±100ms of an onset.\n\n## Type & captions\n\nDisplay type is Ultra Display (700), tight tracking, sentence meaning over decoration. Captions are Ultra Sans 700, **2–4 words per chunk**, uppercase, with an **active-word pill** in accent yellow. The caption band lives at **62–76% height** on 9:16 — fully above the bottom 22% platform UI and clear of the right 15% rail.\n\n## Motion\n\nPunch-ins run **1.00 → 1.14** with `easeOutExpo`; the accent uses `easeOutBack` for a decisive overshoot. Motion blur is sampled **4×** per frame so zooms read like a real camera, not a CSS transition. Camera drift stays under 18px.\n\n## Color & texture\n\nObsidian `#0B0D12`, raised surfaces `#151A23`, warm white `#F7F5EF`, muted blue-grey `#9AA4B2`, signal yellow `#FFD447`, alert coral `#FF5A5F`. Grade adds +0.12 contrast, +12% saturation and a restrained 0.18 vignette. Film grain 0.045, halation 0.12 — texture, not haze.\n\n## Sound\n\nTarget **−14 LUFS** with a **110–150 BPM** bed. Hook → sub-hit, transition → whoosh-fast, accent → ui-click, pop-ins → pop. Duck music **11 dB** under voice.\n\n## Non-negotiables\n\nNo slow logo stings. No talking head held past 2.8s. No captions under the platform rail. No decorative gradient washes — color comes from the palette, type and footage.\n\npalette #0b0d12 #151a23 #f7f5ef #9aa4b2 #ffd447 #ff5a5f\naspect 9:16 safe-zone captions hook retention",
+      "metadata": {
+        "slug": "punchy-shortform",
+        "palette": {
+          "bg": "#0b0d12",
+          "surface": "#151a23",
+          "textPrimary": "#f7f5ef",
+          "textMuted": "#9aa4b2",
+          "accent1": "#ffd447",
+          "accent2": "#ff5a5f"
+        },
+        "typography": {
+          "displayFont": "Ultra Display",
+          "captionFont": "Ultra Sans",
+          "monoFont": "Ultra Mono",
+          "casing": "upper",
+          "captionChunkWords": [
+            2,
+            4
+          ],
+          "safeZoneYPercent": 74,
+          "activeWordHighlight": "pill",
+          "strokePx": 0,
+          "shadowSpec": "0 3px 16px rgba(0,0,0,0.72)"
+        }
+      }
+    },
+    {
+      "id": "motif:punchy-shortform:hook-slam",
+      "kind": "motif",
+      "title": "punchy-shortform · hook slam",
+      "path": "styles/punchy-shortform/motifs/hook-slam.html",
+      "aspect": "9:16",
+      "text": "punchy-shortform 9:16 motif hook-slam.html Hook Slam — punchy-shortform HOOK / 00:00 01 STOP SCROLLING. The first 0.9 seconds decide if the rest exists.",
+      "metadata": {
+        "style": "punchy-shortform",
+        "aspect": "9:16",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "motif:punchy-shortform:stat-pill",
+      "kind": "motif",
+      "title": "punchy-shortform · stat pill",
+      "path": "styles/punchy-shortform/motifs/stat-pill.html",
+      "aspect": "9:16",
+      "text": "punchy-shortform 9:16 motif stat-pill.html Stat Pill — punchy-shortform Data / 01 00:03 / 00:12 3.2 × Faster Retention Hook under 1.6s Same footage, tighter cadence. The number is the hook; the pill is the proof.",
+      "metadata": {
+        "style": "punchy-shortform",
+        "aspect": "9:16",
+        "tokens": [
+          "__ULTRA_SEEK"
+        ]
+      }
+    },
+    {
+      "id": "rule:rules/01-approval-gate.md",
+      "kind": "rule",
+      "title": "01-approval-gate",
+      "path": ".ultra/rules/01-approval-gate.md",
+      "aspect": null,
+      "text": "# 01 — Pre-Production Approval Gate\r\n\r\n- Every edit/build must begin with `workspace/plan.json` (strict schema) and `PLAN.md`.\r\n- `ultra preprod-render` must emit a real moodboard.png and storyboard*.png using bundled fonts on every render tier.\r\n- Show both images to the user and wait for explicit approval. Self-approval is forbidden.\r\n- `ultra approve --by user` writes `approval.json` containing SHA-256(plan.json + ultra.json if present).\r\n- `ultra build` and `ultra render` fail when approval is missing, revoked, or the hash changed.\r\n- `--skip-approval` exists only for automated unit tests; never use it in a user-facing delivery.\r\n",
+      "metadata": {
+        "section": "rules"
+      }
+    },
+    {
+      "id": "rule:rules/02-anti-slop-motion.md",
+      "kind": "rule",
+      "title": "02-anti-slop-motion",
+      "path": ".ultra/rules/02-anti-slop-motion.md",
+      "aspect": null,
+      "text": "# 02 — Anti-slop motion\r\n\r\n- Every cut must land on a beat, a word, or a measured hold; no random float.\r\n- Hooks resolve inside the style hook window; never open with a slow logo sting.\r\n- Punch-ins stay inside the style range; combine camera moves, never stack competing zooms.\r\n- Captions use active-word emphasis only; no full-sentence rainbow karaoke.\r\n- Palette colors come from DESIGN.md/plan.json only. No stock gradients, no template icons.\r\n- Grain, halation and halftone are texture, not haze: keep them under the style opacity caps.\r\n- Run the lint: clipping, contrast, palette, overlap and social safe-zone defects are release blockers.\r\n",
+      "metadata": {
+        "section": "rules"
+      }
+    },
+    {
+      "id": "rule:rules/03-zero-hallucination.md",
+      "kind": "rule",
+      "title": "03-zero-hallucination",
+      "path": ".ultra/rules/03-zero-hallucination.md",
+      "aspect": null,
+      "text": "# 03 — Zero hallucination\r\n\r\n- Never mention a file, asset, font, style or artifact that is not on disk. `ultra guard` is the arbiter.\r\n- Never write placeholder copy into scenes or captions (Lorem ipsum, TBD, INSERT TEXT, [YOUR ...]).\r\n- Verify claims with `ffprobe`, `build/verify-report.json`, `build/delivery-manifest.json` and CI logs.\r\n- If a gate fails, report the failing check and next command; do not claim success.\r\n- Long chats: run `ultra status --json` and `ultra context-pack --stage <stage>` before acting.\r\n",
+      "metadata": {
+        "section": "rules"
+      }
+    },
+    {
+      "id": "rule:rules/04-4k-and-editable-delivery.md",
+      "kind": "rule",
+      "title": "04-4k-and-editable-delivery",
+      "path": ".ultra/rules/04-4k-and-editable-delivery.md",
+      "aspect": null,
+      "text": "# 04 — 4K and editable delivery\r\n\r\n- Iterate with `ultra build --proxy` (max 1280px) and verify the proxy. Draft speed never changes the delivery target.\r\n- Master with `ultra render --4k`; output must be exact 3840x2160 / 2160x3840 / 2160x2160, CFR yuv420p H.264 High@L5.1, AAC 48 kHz stereo 320k, -14 LUFS, +faststart.\r\n- `hybrid` is the default 4K strategy: high-quality lanczos + accurate rounding + full chroma + subtle unsharp; `native` requires a 4K build. The strategy is logged in `build/delivery-manifest.json`.\r\n- `ultra export-project` must produce FCPXML 1.10, OTIO JSON, project.ultra.json, DESIGN.md/Motion.md/PLAN.md, assets/scenes/fonts/motifs/grade, captions and a zero-CDN index.html — all with relative paths and CRC-verified zip.\r\n- `ultra guard --stage delivery` must pass before any delivery claim.\r\n",
+      "metadata": {
+        "section": "rules"
+      }
+    },
+    {
+      "id": "skill:skills/clone-reference/SKILL.md",
+      "kind": "skill",
+      "title": "SKILL",
+      "path": ".ultra/skills/clone-reference/SKILL.md",
+      "aspect": null,
+      "text": "# Clone Reference Skill\r\n\r\n1. Probe the reference; plan the hook/body/outro with measured ASL, cuts, palettes and sound.\r\n2. `ultra plan-init --mode clone --aspect <ref aspect>`; build a truthful storyboard and mood board.\r\n3. Wait for approval; `ultra approve --by user`.\r\n4. Assets: native tools / synth-audio / 3D graphs; `ultra validate-assets`.\r\n5. `ultra build --proxy` -> `ultra verify <ref.mp4>`; patch or `ultra ralph auto-fix` until stutterEvents 0 and lint/style pass.\r\n6. `ultra render --4k` -> `ultra export-project` -> `ultra guard --stage delivery`.\r\n",
+      "metadata": {
+        "section": "clone-reference"
+      }
+    },
+    {
+      "id": "skill:skills/edit-in-style/SKILL.md",
+      "kind": "skill",
+      "title": "SKILL",
+      "path": ".ultra/skills/edit-in-style/SKILL.md",
+      "aspect": null,
+      "text": "# Edit In Style Skill\r\n\r\n1. `ultra status --json`; `ultra style-list`; choose `--style <slug>`.\r\n2. `ultra raw-probe my_video.mp4 --style <slug> --aspect <aspect>`.\r\n3. `ultra captions-align` from SRT/VTT/word JSON or script + envelope.\r\n4. `ultra plan-init --mode edit-in-style --style <slug>`; storyboard the sourceClip trims, punch-ins, captions and overlays. Show preprod PNGs; wait; approve.\r\n5. `ultra build --proxy` -> `ultra verify --style <slug>` or `ultra ralph auto-fix` until style compliance passes (>=90 match).\r\n6. `ultra render --4k` -> `ultra export-project` -> `ultra guard --stage delivery`.\r\n",
+      "metadata": {
+        "section": "edit-in-style"
+      }
+    },
+    {
+      "id": "skill:skills/extract-style/SKILL.md",
+      "kind": "skill",
+      "title": "SKILL",
+      "path": ".ultra/skills/extract-style/SKILL.md",
+      "aspect": null,
+      "text": "# Extract Style Skill\r\n\r\n1. `ultra style-probe <1-10 videos> --out workspace/style-probe --hook-window 5`.\r\n2. Map-Reduce the 8 style groups into style.json (strict schema), STYLE.md, 2+ deterministic motifs and 2-8 exemplars.\r\n3. `ultra style-validate <dir>` until exit 0.\r\n4. `ultra style-export <dir> --out build/<slug>-style-pack.zip`.\r\n5. Deliver only the validated zip; Qoder imports it with `ultra style-import <zip> --repack`.\r\n",
+      "metadata": {
+        "section": "extract-style"
+      }
+    },
+    {
+      "id": "skill:skills/preprod-storyboard/SKILL.md",
+      "kind": "skill",
+      "title": "SKILL",
+      "path": ".ultra/skills/preprod-storyboard/SKILL.md",
+      "aspect": null,
+      "text": "# Pre-Production Storyboard Skill\r\n\r\nUse before any editing/building.\r\n\r\n1. `ultra plan-init --mode clone|edit-in-style [--style <slug>] [--aspect 9:16|16:9|1:1] [--resolution 4k|1080p]`.\r\n2. Replace the template shot cards with the real measured concept, palette, type hierarchy, camera direction, caption text, engine and SFX.\r\n3. `ultra preprod-render` -> `build/preprod/moodboard.png` + `storyboard*.png`.\r\n4. Inspect both PNGs; verify palette contrast, typography, shot timings and safe zones.\r\n5. Show them to the user, WAIT, then `ultra approve --by user`.\r\n6. If the plan changes: rerun preprod-render, re-show, re-approve.\r\n",
+      "metadata": {
+        "section": "preprod-storyboard"
+      }
+    },
+    {
+      "id": "agent:agents/asset-producer.md",
+      "kind": "agent",
+      "title": "asset-producer",
+      "path": ".ultra/agents/asset-producer.md",
+      "aspect": null,
+      "text": "# Role — Asset Producer\r\n\r\nStage: assets. Inputs: approved plan, ultra.json, assets-todo.json.\r\nOutputs: workspace/assets/*, assets.manifest.json, synthesized WAVs.\r\nCommands: ultra asset-plan --host chatgpt; ultra synth-audio --from-assets; ultra validate-assets.\r\nContract: every referenced asset must exist and pass alpha/XML/duration checks. Parallelizable with director once plan.json is stable.\r\n",
+      "metadata": {
+        "section": "agents"
+      }
+    },
+    {
+      "id": "agent:agents/director.md",
+      "kind": "agent",
+      "title": "director",
+      "path": ".ultra/agents/director.md",
+      "aspect": null,
+      "text": "# Role — Director\r\n\r\nStage: preprod. Inputs: reference/raw footage, user intent, top RAG hits.\r\nOutputs: workspace/plan.json, PLAN.md, build/preprod/moodboard.png, storyboard*.png, approval.json.\r\nCommands: ultra probe / raw-probe; ultra rag query; ultra plan-init; ultra preprod-render; ultra approve --by user.\r\nContract: never build before explicit user approval. Can run in parallel with asset-producer only after the plan exists.\r\n",
+      "metadata": {
+        "section": "agents"
+      }
+    },
+    {
+      "id": "agent:agents/mastering-engineer.md",
+      "kind": "agent",
+      "title": "mastering-engineer",
+      "path": ".ultra/agents/mastering-engineer.md",
+      "aspect": null,
+      "text": "# Role — Mastering Engineer\r\n\r\nStage: master/delivery. Inputs: verified draft, build manifest, delivery target.\r\nOutputs: build/ultra-final.mp4 (4K), delivery-manifest.json, editable-project/ + zip.\r\nCommands: ultra render --4k; ultra export-project; ultra guard --stage delivery.\r\nContract: exact 4K dims, CFR yuv420p, AAC 48k stereo, +faststart, valid FCPXML/OTIO/zip; guard must exit 0.\r\n",
+      "metadata": {
+        "section": "agents"
+      }
+    },
+    {
+      "id": "agent:agents/motion-builder.md",
+      "kind": "agent",
+      "title": "motion-builder",
+      "path": ".ultra/agents/motion-builder.md",
+      "aspect": null,
+      "text": "# Role — Motion Builder\r\n\r\nStage: build. Inputs: ultra.json, captions.json, assets, approved plan.\r\nOutputs: build/draft.mp4, build/build-manifest.json, build/scenes/*.\r\nCommands: ultra validate-spec; ultra build --proxy.\r\nContract: deterministic CFR, no banned transitions, captions inside safe zones. Runs after director + asset-producer handoff.\r\n",
+      "metadata": {
+        "section": "agents"
+      }
+    },
+    {
+      "id": "agent:agents/qa-critic.md",
+      "kind": "agent",
+      "title": "qa-critic",
+      "path": ".ultra/agents/qa-critic.md",
+      "aspect": null,
+      "text": "# Role — QA Critic\r\n\r\nStage: verify/fix. Inputs: draft.mp4, audit frames, verify targets.\r\nOutputs: build/verify-report.json, patch history, ralph-state.json/history.\r\nCommands: ultra verify; ultra ralph auto-fix; ultra patch; ultra guard --stage verify.\r\nContract: stutterEvents must be 0; lint criticals 0; style compliance and match >= 90. Evidence only, no vibes.\r\n",
+      "metadata": {
+        "section": "agents"
+      }
+    },
+    {
+      "id": "effect:ultra-ease",
+      "kind": "effect",
+      "title": "ultra-ease",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "UltraEase easing linear expo.out expo.inOut back.out power3.out cubic-bezier kinetic typography",
+      "metadata": {}
+    },
+    {
+      "id": "effect:grain",
+      "kind": "effect",
+      "title": "grain",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "film grain seeded noise texture vignette halation halftone anti-slop",
+      "metadata": {}
+    },
+    {
+      "id": "effect:camera",
+      "kind": "effect",
+      "title": "camera",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "2.5D camera rig zoom pan rotate perspective punch-in ken burns drift",
+      "metadata": {}
+    },
+    {
+      "id": "effect:captions",
+      "kind": "effect",
+      "title": "captions",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "word-level captions active-word pill underline safe zone 9:16 16:9 hook",
+      "metadata": {}
+    },
+    {
+      "id": "effect:sourceClip",
+      "kind": "effect",
+      "title": "sourceClip",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "sourceClip trims J-cut L-cut punch-in raw footage edit in style",
+      "metadata": {}
+    },
+    {
+      "id": "effect:transition",
+      "kind": "effect",
+      "title": "transition",
+      "path": "engines/hyperframes",
+      "aspect": null,
+      "text": "xfade fade wipeleft wiperight slideup circleopen banned transitions",
+      "metadata": {}
+    },
+    {
+      "id": "sfx:whoosh",
+      "kind": "sfx",
+      "title": "whoosh",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset whoosh offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "whoosh"
+      }
+    },
+    {
+      "id": "sfx:whoosh-fast",
+      "kind": "sfx",
+      "title": "whoosh-fast",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset whoosh-fast offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "whoosh-fast"
+      }
+    },
+    {
+      "id": "sfx:sub-hit",
+      "kind": "sfx",
+      "title": "sub-hit",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset sub-hit offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "sub-hit"
+      }
+    },
+    {
+      "id": "sfx:riser",
+      "kind": "sfx",
+      "title": "riser",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset riser offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "riser"
+      }
+    },
+    {
+      "id": "sfx:pop",
+      "kind": "sfx",
+      "title": "pop",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset pop offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "pop"
+      }
+    },
+    {
+      "id": "sfx:ui-click",
+      "kind": "sfx",
+      "title": "ui-click",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset ui-click offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "ui-click"
+      }
+    },
+    {
+      "id": "sfx:glitch-zap",
+      "kind": "sfx",
+      "title": "glitch-zap",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset glitch-zap offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "glitch-zap"
+      }
+    },
+    {
+      "id": "sfx:shutter",
+      "kind": "sfx",
+      "title": "shutter",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset shutter offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "shutter"
+      }
+    },
+    {
+      "id": "sfx:swoosh-reverse",
+      "kind": "sfx",
+      "title": "swoosh-reverse",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset swoosh-reverse offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "swoosh-reverse"
+      }
+    },
+    {
+      "id": "sfx:chime",
+      "kind": "sfx",
+      "title": "chime",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset chime offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "chime"
+      }
+    },
+    {
+      "id": "sfx:beat-pulse",
+      "kind": "sfx",
+      "title": "beat-pulse",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset beat-pulse offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "beat-pulse"
+      }
+    },
+    {
+      "id": "sfx:ambient-tech",
+      "kind": "sfx",
+      "title": "ambient-tech",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset ambient-tech offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "ambient-tech"
+      }
+    },
+    {
+      "id": "sfx:minimal-tension",
+      "kind": "sfx",
+      "title": "minimal-tension",
+      "path": "core/synth-audio.ts",
+      "aspect": null,
+      "text": "synth-audio preset minimal-tension offline 48khz stereo wav whoosh impact riser music bed",
+      "metadata": {
+        "preset": "minimal-tension"
+      }
+    }
+  ]
+}

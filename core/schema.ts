@@ -333,6 +333,8 @@ export const MetaSpec = z.object({
   durationSec: z.number().positive(),
   /** Optional platform aspect lock: enables social UI safe-zone linting. */
   aspectProfile: AspectProfile.optional(),
+  /** Delivery master target; proxy builds still iterate at lower resolution. */
+  deliveryResolution: z.enum(["4k", "1080p"]).optional(),
 });
 
 export const UltraProject = z.object({

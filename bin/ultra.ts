@@ -41,6 +41,24 @@ import {
   type SynthMood,
 } from "../core/synth-audio.js";
 import { shutdownBrowser } from "../core/browser.js";
+import {
+  approvalErrorMessage,
+  approvePlan,
+  aspectFromDims,
+  checkApprovalGate,
+  initPlan,
+  loadPlan,
+  planDimensions,
+  renderPreprod,
+  revokeApproval,
+} from "../core/preprod.js";
+import { ffmpegOk, ffprobeJson } from "../core/ffmpeg.js";
+import { exportProject } from "../core/project-export.js";
+import { runGuard, type GuardStage } from "../core/guard.js";
+import { loadRagIndex, queryRag } from "../core/rag.js";
+import { buildContextPack, type ContextStage } from "../core/context-pack.js";
+import { getRoleStatus } from "../core/orchestrator-roles.js";
+import { autoFixRalph, initRalph, readRalphState } from "../core/ralph.js";
 
 class CliError extends Error {}
 
@@ -165,6 +183,66 @@ program
   });
 
 program
+  .command("plan-init")
+  .description("Stage 1: scaffold workspace/plan.json + PLAN.md (concept, palette, typography, storyboard)")
+  .option("--mode <mode>", "clone|edit-in-style", "clone")
+  .option("--style <slug>", "installed Style Pack for edit-in-style")
+  .option("--aspect <aspect>", "16:9|9:16|1:1", "16:9")
+  .option("--resolution <resolution>", "4k|1080p", "1080p")
+  .option("--force", "overwrite an existing plan.json")
+  .action(async (options: { mode: string; style?: string; aspect: string; resolution: string; force?: boolean }) => {
+    const { workspace } = paths();
+    const mode = options.mode === "edit-in-style" ? "edit-in-style" : "clone";
+    if (!isAspectProfile(options.aspect)) throw new CliError("--aspect must be 16:9, 9:16 or 1:1");
+    const resolution = options.resolution === "4k" ? "4k" : "1080p";
+    const result = await initPlan({
+      workspace,
+      mode,
+      styleSlug: options.style ?? null,
+      aspect: options.aspect,
+      resolution,
+      force: options.force,
+    });
+    console.log(`plan-init → ${result.planFile}`);
+    console.log(`  ${result.plan.meta.aspect} · ${resolution} · ${result.plan.meta.durationSec}s · ${result.plan.shots.length} shots`);
+    console.log(`  plan doc → ${result.planMd}`);
+    console.log(`  Next: ultra preprod-render  → show build/preprod/moodboard.png + storyboard*.png → WAIT for user approval`);
+  });
+
+program
+  .command("preprod-render")
+  .description("Stage 1: render build/preprod/moodboard.png + storyboard pages with FFmpeg (all render tiers)")
+  .action(async () => {
+    const { workspace, buildDir } = paths();
+    const plan = await loadPlan(workspace);
+    if (!plan) throw new CliError("plan.json not found — run `ultra plan-init` first");
+    const result = await renderPreprod(workspace, buildDir);
+    console.log(`preprod-render → ${result.moodboard}`);
+    console.log(`  ${result.width}x${result.height} target · ${plan.shots.length} shots`);
+    for (const page of result.storyboards) console.log(`  storyboard → ${page}`);
+    console.log(`  Next: show BOTH images to the user, WAIT for explicit approval, then \`ultra approve --by user\``);
+  });
+
+program
+  .command("approve")
+  .description("Stage 1 gate: approve plan.json + ultra.json hash (or --revoke)")
+  .option("--by <by>", "user|ci")
+  .option("--notes <notes>", "approval notes", "")
+  .option("--revoke", "revoke the current approval")
+  .action(async (options: { by?: string; notes: string; revoke?: boolean }) => {
+    const { workspace } = paths();
+    if (options.revoke) {
+      const approval = await revokeApproval(workspace, options.by ?? "user", options.notes);
+      console.log(`approve --revoke → ${path.join(workspace, "approval.json")} (approved ${approval.approved})`);
+      return;
+    }
+    if (!options.by) throw new CliError("`ultra approve` needs --by user|ci");
+    const approval = await approvePlan(workspace, options.by, options.notes);
+    console.log(`approve → ${path.join(workspace, "approval.json")}`);
+    console.log(`  approved by ${approval.approvedBy} · planHash ${approval.planHash}`);
+  });
+
+program
   .command("init")
   .description("Scaffold workspace/ultra.json + DESIGN.md + Motion.md + assets/")
   .option("--force", "overwrite an existing workspace")
@@ -257,11 +335,29 @@ program
   .command("build")
   .description("Rule 3/4: render scenes (engine routing + SHA-1 cache) and stitch build/draft.mp4")
   .option("--strict-engine", "fail instead of falling back to HyperFrames")
-  .action(async (options: { strictEngine?: boolean }) => {
+  .option("--proxy", "fast proxy render (max 1280px) with exact aspect for cloud iteration")
+  .option("--resolution <resolution>", "proxy|1080p|4k render size override")
+  .option("--skip-approval", "test-only: bypass the pre-production approval gate")
+  .action(async (options: { strictEngine?: boolean; proxy?: boolean; resolution?: string; skipApproval?: boolean }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
-    const manifest = await buildProject({ project, workspace, buildDir, strictEngine: options.strictEngine });
-    console.log(`build → ${manifest.draftFile} (${manifest.durationSec}s @ ${manifest.fps}fps)`);
+    const gate = await checkApprovalGate(workspace, { skip: options.skipApproval });
+    if (!gate.ok) throw new CliError(approvalErrorMessage(gate));
+    const aspect = project.meta.aspectProfile ?? aspectFromDims(project.meta.width, project.meta.height);
+    const resolution = options.proxy ? "proxy" : options.resolution;
+    const dims =
+      resolution === "proxy" || resolution === "1080p" || resolution === "4k"
+        ? planDimensions(aspect, resolution)
+        : { width: project.meta.width, height: project.meta.height };
+    const manifest = await buildProject({
+      project,
+      workspace,
+      buildDir,
+      strictEngine: options.strictEngine,
+      renderWidth: dims.width,
+      renderHeight: dims.height,
+    });
+    console.log(`build → ${manifest.draftFile} (${manifest.width}x${manifest.height} · ${manifest.durationSec}s @ ${manifest.fps}fps)`);
     for (const scene of manifest.scenes) {
       console.log(
         `  ${scene.sceneId.padEnd(18)} ${scene.engineUsed.padEnd(12)} ${scene.cached ? "cache" : "rendered"} ${scene.fallback ? "· fallback" : ""} ${scene.notes.length ? `· ${scene.notes[0]}` : ""}`,
@@ -748,9 +844,23 @@ program
   .option("--out <path>", "output file", "build/ultra-final.mp4")
   .option("--force", "render even if verify-report.json is missing or failing")
   .option("--crf <number>", "x264 CRF", "16")
-  .action(async (options: { out: string; force?: boolean; crf: string }) => {
+  .option("--4k", "master at exact 4K dimensions (hybrid upscale by default)")
+  .option("--resolution <resolution>", "1080p|4k delivery override")
+  .option("--4k-strategy <strategy>", "hybrid|native", "hybrid")
+  .option("--skip-approval", "test-only: bypass the pre-production approval gate")
+  .action(async (options: {
+    out: string;
+    force?: boolean;
+    crf: string;
+    "4k"?: boolean;
+    resolution?: string;
+    "4kStrategy": string;
+    skipApproval?: boolean;
+  }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
+    const gate = await checkApprovalGate(workspace, { skip: options.skipApproval });
+    if (!gate.ok) throw new CliError(approvalErrorMessage(gate));
     const manifestFile = path.join(buildDir, "build-manifest.json");
     if (!(await pathExists(manifestFile))) throw new CliError("No build manifest. Run `ultra build` first.");
     const manifest = (await readJson(manifestFile)) as BuildManifest;
@@ -774,6 +884,21 @@ program
     }
 
     const outFile = path.resolve(options.out);
+    const aspect = project.meta.aspectProfile ?? aspectFromDims(manifest.width, manifest.height);
+    const wants4k =
+      options["4k"] === true ||
+      options.resolution === "4k" ||
+      (options.resolution === undefined && project.meta.deliveryResolution === "4k");
+    const target = wants4k ? planDimensions(aspect, "4k") : { width: manifest.width, height: manifest.height };
+    const strategy = options["4kStrategy"] === "native" ? "native" : "hybrid";
+    if (wants4k && strategy === "native" && (manifest.width !== target.width || manifest.height !== target.height)) {
+      throw new CliError(
+        `--4k-strategy native needs a 4K build first (manifest is ${manifest.width}x${manifest.height}). Run \`ultra build --resolution 4k\` or use --4k-strategy hybrid.`,
+      );
+    }
+
+    const masterSource = wants4k ? path.join(buildDir, "tmp", "master-source.mp4") : outFile;
+    await ensureDir(path.dirname(masterSource));
     const result = await stitchTimeline({
       project,
       workspace,
@@ -785,18 +910,276 @@ program
         endSec: s.endSec,
         durationSec: s.durationSec,
       })),
-      outFile,
+      outFile: masterSource,
       crf: Number(options.crf),
       preset: "slow",
     });
+
+    let finalWidth = manifest.width;
+    let finalHeight = manifest.height;
+    const deliveryStrategy = wants4k ? (strategy === "native" ? "native-rerender" : "hybrid-upscale") : "direct";
+    if (wants4k) {
+      finalWidth = target.width;
+      finalHeight = target.height;
+      const upscale = manifest.width !== target.width || manifest.height !== target.height;
+      const videoFilters = [
+        ...(upscale
+          ? [`scale=${target.width}:${target.height}:flags=lanczos+accurate_rnd+full_chroma_int`, "unsharp=5:5:0.35:5:5:0.0"]
+          : []),
+        "scale=out_range=tv",
+        "format=yuv420p",
+      ].join(",");
+      await ffmpegOk(
+        [
+          "-hide_banner",
+          "-y",
+          "-i",
+          masterSource,
+          "-vf",
+          videoFilters,
+          "-c:v",
+          "libx264",
+          "-profile:v",
+          "high",
+          "-level:v",
+          "5.1",
+          "-preset",
+          "slow",
+          "-crf",
+          "16",
+          "-pix_fmt",
+          "yuv420p",
+          "-color_range",
+          "tv",
+          "-colorspace",
+          "bt709",
+          "-color_primaries",
+          "bt709",
+          "-color_trc",
+          "bt709",
+          "-r",
+          String(manifest.fps),
+          "-fps_mode",
+          "cfr",
+          ...(result.hasAudio ? ["-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2"] : []),
+          "-movflags",
+          "+faststart",
+          outFile,
+        ],
+        { timeoutMs: 45 * 60_000 },
+      );
+      await fs.rm(masterSource, { force: true });
+    }
+
+    const probe = await ffprobeJson(outFile);
+    const video = probe.streams.find((stream: { codec_type?: string }) => stream.codec_type === "video") as
+      | { codec_name?: string; width?: number; height?: number; pix_fmt?: string; r_frame_rate?: string; avg_frame_rate?: string }
+      | undefined;
+    const audio = probe.streams.find((stream: { codec_type?: string }) => stream.codec_type === "audio") as
+      | { codec_name?: string; sample_rate?: string; channels?: number }
+      | undefined;
+    const checks = {
+      widthOk: video?.width === finalWidth,
+      heightOk: video?.height === finalHeight,
+      pixFmtOk: video?.pix_fmt === "yuv420p",
+      fpsOk: video?.r_frame_rate === video?.avg_frame_rate,
+      audioOk: !result.hasAudio || Boolean(audio),
+      durationOk: Math.abs(Number(probe.format?.duration) - project.meta.durationSec) <= 0.15,
+    };
+    const deliveryManifest = {
+      generatedAt: new Date().toISOString(),
+      resolution: wants4k ? "4k" : "1080p",
+      aspect,
+      target: { width: finalWidth, height: finalHeight },
+      strategy: deliveryStrategy,
+      source: { width: manifest.width, height: manifest.height, draft: manifest.draftFile },
+      fps: manifest.fps,
+      video: { codec: video?.codec_name ?? null, pixFmt: video?.pix_fmt ?? null, rFrameRate: video?.r_frame_rate ?? null },
+      audio: audio
+        ? { codec: audio.codec_name ?? null, sampleRate: audio.sample_rate ?? null, channels: audio.channels ?? null, bitrate: "320k" }
+        : null,
+      durationSec: Number(probe.format?.duration ?? 0),
+      files: { master: outFile },
+      checks,
+      pass: Object.values(checks).every(Boolean),
+    };
+    await writeJsonAtomic(path.join(buildDir, "delivery-manifest.json"), deliveryManifest);
     await writeJsonAtomic(path.join(buildDir, "render-manifest.json"), {
       renderedAt: new Date().toISOString(),
       outFile,
       crf: Number(options.crf),
       result,
+      delivery: deliveryManifest,
     });
+    if (!deliveryManifest.pass) {
+      throw new CliError(`delivery assertions failed: ${JSON.stringify(checks)}\n${JSON.stringify(deliveryManifest, null, 2)}`);
+    }
     console.log(`render → ${outFile}`);
-    console.log(`  ${result.durationSec}s · ${manifest.fps}fps · ${result.transitionCount} transitions · ${result.overlayCount} alpha overlays · audio ${result.hasAudio ? "mixed + loudnorm" : "none"}`);
+    console.log(
+      `  ${result.durationSec}s · ${manifest.fps}fps · ${finalWidth}x${finalHeight} · strategy ${deliveryStrategy} · ${result.transitionCount} transitions · ${result.overlayCount} alpha overlays · ${result.hasAudio ? "AAC 320k audio + loudnorm" : "no audio"}`,
+    );
+    console.log(`  delivery-manifest.json checks ${JSON.stringify(checks)}`);
+  });
+
+program
+  .command("export-project")
+  .description("Stage 3: export FCPXML + OTIO + editable Ultra template + offline inspector zip")
+  .option("--out <dir>", "output directory", "build/editable-project")
+  .option("--zip <path>", "zip path", "build/editable-project.zip")
+  .action(async (options: { out: string; zip: string }) => {
+    const { workspace, buildDir } = paths();
+    const result = await exportProject({
+      workspace,
+      buildDir,
+      outDir: path.resolve(options.out),
+      zipPath: path.resolve(options.zip),
+    });
+    const manifestFile = path.join(buildDir, "delivery-manifest.json");
+    if (await pathExists(manifestFile)) {
+      const manifest = (await readJson(manifestFile)) as Record<string, unknown>;
+      const files = { ...((manifest["files"] as Record<string, unknown>) ?? {}), editableZip: result.zip };
+      const checks = {
+        ...((manifest["checks"] as Record<string, unknown>) ?? {}),
+        editableZipOk: result.zipBytes > 0,
+      };
+      await writeJsonAtomic(manifestFile, { ...manifest, files, checks, pass: Object.values(checks).every(Boolean) });
+    }
+    console.log(`export-project → ${result.dir}`);
+    console.log(`  ${result.files.length} files · ${result.width}x${result.height} · FCPXML ${path.basename(result.fcpxml)} · OTIO ${path.basename(result.otio)} · inspector ${path.basename(result.inspector)}`);
+    console.log(`  zip → ${result.zip} (${(result.zipBytes / 1024).toFixed(1)} KiB, CRC verified)`);
+  });
+
+program
+  .command("guard")
+  .description("Hallucination + evidence guard (grounding, placeholders, ffprobe/delivery assertions)")
+  .option("--stage <stage>", "plan|build|verify|delivery", "plan")
+  .option("--json", "machine-readable JSON")
+  .action(async (options: { stage: string; json?: boolean }) => {
+    const { workspace, buildDir } = paths();
+    const stage: GuardStage = ["plan", "build", "verify", "delivery"].includes(options.stage)
+      ? (options.stage as GuardStage)
+      : "plan";
+    const report = await runGuard(workspace, buildDir, stage);
+    if (options.json) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`guard (${stage}) → ${report.ok ? "PASS" : "FAIL"}`);
+      for (const error of report.errors) console.log(`  ERROR ${error.check}: ${error.detail}`);
+      for (const warning of report.warnings) console.log(`  warn  ${warning.check}: ${warning.detail}`);
+    }
+    if (!report.ok) process.exitCode = 1;
+  });
+
+const ragCommand = program.command("rag").description("Offline BM25 project knowledge retrieval");
+ragCommand
+  .command("query <query>")
+  .description("Rank styles/motifs/rules/sfx for a query")
+  .option("--kind <kind>", "style|motif|sfx|rule|skill|effect")
+  .option("--aspect <aspect>", "9:16|16:9|1:1")
+  .option("--top <n>", "result count", "5")
+  .option("--json", "machine-readable JSON")
+  .action(async (query: string, options: { kind?: string; aspect?: string; top: string; json?: boolean }) => {
+    const index = await loadRagIndex();
+    const hits = queryRag(index, query, {
+      ...(options.kind ? { kind: options.kind as never } : {}),
+      ...(options.aspect && isAspectProfile(options.aspect) ? { aspect: options.aspect } : {}),
+      top: Number(options.top) || 5,
+    });
+    if (options.json) {
+      console.log(JSON.stringify({ query, hits }, null, 2));
+      return;
+    }
+    console.log(`rag query "${query}" → ${hits.length} hits`);
+    for (const hit of hits) console.log(`  ${hit.score.toFixed(3)} [${hit.kind}] ${hit.title} · ${hit.path}`);
+  });
+
+program
+  .command("context-pack")
+  .description("Stage-scoped token-budgeted markdown brief (rules + RAG + blockers + next command)")
+  .option("--stage <stage>", "preprod|assets|build|verify|fix|master", "preprod")
+  .option("--budget-tokens <n>", "token budget (chars/4 estimate)", "3500")
+  .option("--out <path>", "output markdown", "workspace/context/brief.md")
+  .action(async (options: { stage: string; budgetTokens: string; out: string }) => {
+    const { workspace, buildDir } = paths();
+    const stage = (["preprod", "assets", "build", "verify", "fix", "master"].includes(options.stage)
+      ? options.stage
+      : "preprod") as ContextStage;
+    const result = await buildContextPack({
+      workspace,
+      buildDir,
+      stage,
+      budgetTokens: Number(options.budgetTokens) || 3500,
+      outFile: path.resolve(options.out),
+    });
+    console.log(`context-pack (${stage}) → ${result.path}`);
+    console.log(`  ~${result.estimatedTokens} tokens · ${result.hits.length} RAG hits · ${result.blockers.length} blockers`);
+    console.log(`  next: ${result.nextCommand}`);
+  });
+
+program
+  .command("orchestrate")
+  .description("Sub-agent role orchestration: active role, artifact contract, parallel-safe steps")
+  .option("--status", "show the active role status")
+  .option("--next-role", "show the next role and contract")
+  .option("--json", "machine-readable JSON")
+  .action(async (options: { status?: boolean; nextRole?: boolean; json?: boolean }) => {
+    const { workspace, buildDir } = paths();
+    const status = await getRoleStatus(workspace, buildDir);
+    if (options.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+    console.log(`orchestrate · ${status.activeRole} (${status.title}) · stage ${status.stage}`);
+    console.log(`  inputs   ${status.inputContract.join(" · ")}`);
+    console.log(`  outputs  ${status.outputContract.join(" · ")}`);
+    console.log(`  next     ${status.nextCommand}`);
+    console.log(`  model    ${status.executionModel}`);
+  });
+
+const ralphCommand = program.command("ralph").description("Bounded deterministic Ralph verify/fix loop");
+ralphCommand
+  .command("init")
+  .description("Initialize workspace/ralph-state.json with a machine-checkable completion promise")
+  .option("--max-iter <n>", "maximum iterations", "5")
+  .option("--min-score <n>", "minimum score", "90")
+  .option("--target-4k", "require 4K delivery in the completion promise")
+  .action(async (options: { maxIter: string; minScore: string; target4k?: boolean }) => {
+    const { workspace } = paths();
+    const state = await initRalph(workspace, {
+      maxIter: Number(options.maxIter),
+      minScore: Number(options.minScore),
+      target4k: options.target4k,
+    });
+    console.log(`ralph init → ${path.join(workspace, "ralph-state.json")}`);
+    console.log(`  maxIter ${state.maxIter} · minScore ${state.minScore} · promise ${state.completionPromise}`);
+  });
+ralphCommand
+  .command("auto-fix")
+  .description("Deterministically repair safe zones, contrast, transitions and loudness until the promise is met")
+  .action(async () => {
+    const { workspace, buildDir } = paths();
+    const state = await autoFixRalph(workspace, buildDir);
+    console.log(`ralph auto-fix → ${state.status} · attempts ${state.attempt}/${state.maxIter} · best score ${state.bestScore ?? "—"}`);
+    console.log(`  history → ${path.join(workspace, "ralph-history.md")}`);
+    if (state.status !== "satisfied") process.exitCode = 1;
+  });
+ralphCommand
+  .command("status")
+  .description("Report current attempt, remaining budget, failing gates and completion promise")
+  .option("--json", "machine-readable JSON")
+  .action(async (options: { json?: boolean }) => {
+    const { workspace } = paths();
+    const state = await readRalphState(workspace);
+    if (options.json) {
+      console.log(JSON.stringify(state, null, 2));
+      return;
+    }
+    if (!state) {
+      console.log("ralph: not initialized (run `ultra ralph init`)");
+      return;
+    }
+    console.log(`ralph ${state.status} · attempt ${state.attempt}/${state.maxIter} · best ${state.bestScore ?? "—"} / min ${state.minScore}`);
+    console.log(`  promise ${state.completionPromise}`);
+    console.log(`  satisfied ${state.status === "satisfied"}`);
   });
 
 try {
