@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { tailLines } from "./util.js";
 
 /* ============================================================================
  * Browser discovery (Linux / Windows / macOS; system + Playwright/Puppeteer caches)
@@ -319,7 +320,16 @@ async function launchBrowserProcess(): Promise<{ connection: CdpConnection; info
   const child = spawn(info.executablePath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   const wsUrl = await new Promise<string>((resolve, reject) => {
     let buffer = "";
-    const timer = setTimeout(() => reject(new Error("Timed out waiting for the DevTools endpoint")), 25_000);
+    // First cold start on a loaded Linux runner can exceed 25s; 60s is still
+    // bounded but avoids flaky DevTools timeouts before any test has warmed up.
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // ignore
+      }
+      reject(new Error(`Timed out waiting for the DevTools endpoint:\n${tailLines(buffer, 8)}`));
+    }, 60_000);
     child.stderr?.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
       const match = buffer.match(/DevTools listening on (ws:\/\/\S+)/);
@@ -334,7 +344,7 @@ async function launchBrowserProcess(): Promise<{ connection: CdpConnection; info
     });
     child.on("exit", (code) => {
       clearTimeout(timer);
-      reject(new Error(`Browser exited early (code ${code})`));
+      reject(new Error(`Browser exited early (code ${code}):\n${tailLines(buffer, 8)}`));
     });
   });
 

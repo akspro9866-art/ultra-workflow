@@ -137,14 +137,34 @@ export async function settlePage(page: UltraPage): Promise<void> {
 export async function waitForVideos(page: UltraPage, timeoutMs = 10_000): Promise<void> {
   await page.evaluate(`(async () => {
     var videos = Array.prototype.slice.call(document.querySelectorAll("video"));
-    await Promise.all(videos.map(function (video) {
-      if (video.readyState >= 1 && isFinite(video.duration)) return Promise.resolve();
+    function waitEvent(video, names, ms) {
       return new Promise(function (resolve) {
-        function done() { resolve(); }
-        video.addEventListener("loadedmetadata", done, { once: true });
-        video.addEventListener("error", done, { once: true });
-        setTimeout(done, ${Math.max(1000, timeoutMs)});
+        var done = false;
+        function finish() {
+          if (done) return;
+          done = true;
+          names.forEach(function (name) { video.removeEventListener(name, finish); });
+          resolve();
+        }
+        names.forEach(function (name) { video.addEventListener(name, finish, { once: true }); });
+        setTimeout(finish, ms);
       });
+    }
+    // Cloud Linux cold-starts can report readyState 1 (metadata only) and the
+    // DOM audit would then flag a false brokenMedia. Force a decoded frame.
+    await Promise.all(videos.map(async function (video) {
+      if (video.readyState < 1 || !isFinite(video.duration)) {
+        await waitEvent(video, ["loadedmetadata", "error"], 8000);
+      }
+      if (isFinite(video.duration) && video.duration > 0) {
+        try {
+          var target = Math.min(Math.max(0.001, video.currentTime || 0), video.duration - 0.001);
+          if (video.readyState < 2 || Math.abs(video.currentTime - target) > 0.0008) video.currentTime = target;
+        } catch (e) { /* ignore */ }
+      }
+      if (video.readyState < 2) {
+        await waitEvent(video, ["loadeddata", "canplay", "seeked", "error"], ${Math.max(1000, timeoutMs)});
+      }
     }));
   })()`);
 }

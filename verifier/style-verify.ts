@@ -231,10 +231,13 @@ export async function runStyleVerify(opts: {
   if (groups.hook.length === 0) details.push("note: no hook-window scenes (first 5s shorter than hookWindowSec?)");
   if (groups.body.length === 0) details.push("note: no body scenes classified (all scenes inside hook window or outro)");
 
-  const staticHoldOk = metrics.maxStaticHoldSec <= style.pacing.maxStaticHoldSec + 0.02;
+  // Frame-difference analysis quantizes holds to frames; allow 1.5 frames so a
+  // 30fps encode is not failed for measuring 0.533s against a 0.5s style lock.
+  const holdToleranceSec = 1.5 / Math.max(1, metrics.fpsActual ?? opts.project.meta.fps);
+  const staticHoldOk = metrics.maxStaticHoldSec <= style.pacing.maxStaticHoldSec + holdToleranceSec;
   if (!staticHoldOk) {
     details.push(
-      `longest static hold ${metrics.maxStaticHoldSec}s exceeds style maxStaticHoldSec ${style.pacing.maxStaticHoldSec}s`,
+      `longest static hold ${metrics.maxStaticHoldSec}s exceeds style maxStaticHoldSec ${style.pacing.maxStaticHoldSec}s (tolerance ${holdToleranceSec.toFixed(3)}s)`,
     );
   }
 

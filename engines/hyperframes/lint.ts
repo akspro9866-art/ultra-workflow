@@ -255,6 +255,8 @@ export async function lintScene(ctx: LintContext): Promise<LintResult> {
     });
     for (const frameIndex of frameIndices) {
       await page.evaluate(`window.__ULTRA_SEEK(${frameIndex}, ${fps})`);
+      // Guarantee the seeked video has a decoded frame before auditing media.
+      await waitForVideos(page);
       const raw = (await page.evaluate(`window.__ULTRA_AUDIT(${auditArgs})`)) as RawDefect[];
       for (const problem of raw) {
         const key = `${problem.category}::${problem.detail}`;

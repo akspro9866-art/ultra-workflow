@@ -326,6 +326,9 @@ program
         `  audio     ${metrics.loudness ? `${metrics.loudness.inputI ?? "?"} LUFS (style target ${result.style.soundDesign.targetLufs} ±1.5)` : "no audio stream"}`,
       );
       console.log(`  lint      ${lint.defectCount} defects (${lint.criticalDefectCount} critical) ${lint.pass ? "OK" : "FAIL"}`);
+      for (const defect of lint.scenes.flatMap((scene) => scene.defects).slice(0, 12)) {
+        console.log(`    - [${defect.critical ? "critical" : "warning"}] ${defect.sceneId} (${defect.category}): ${defect.detail}`);
+      }
       console.log(
         `  style     asl ${compliance.aslOk ? "OK" : "FAIL"} · holds ${compliance.staticHoldOk ? "OK" : "FAIL"} · transitions ${compliance.transitionsOk ? "OK" : "FAIL"} · palette ${compliance.paletteOk ? "OK" : "FAIL"} (Δ${compliance.paletteDistanceAvg}) · loudness ${compliance.loudnessOk ? "OK" : "FAIL"}`,
       );
