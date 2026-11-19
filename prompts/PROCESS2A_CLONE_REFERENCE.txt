@@ -1,0 +1,11 @@
+PROCESS 2A — CLONE REFERENCE VIDEO 1:1 (all 6 deterministic rules)
+
+Attached: one reference video. Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
+
+1. Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Set ULTRA="node ultra-workflow/dist/ultra.mjs".
+2. Rule 1 ANALYZE: `$ULTRA probe <ref.mp4>`. Natively inspect probe.json (cuts, onsets, per-scene palettes/luminance/contrast, audio envelope) plus every contact sheet and probe frame. Write workspace/DESIGN.md, Motion.md, ultra.json (contiguous scenes tiling 0..duration; primitives: reveal/camera/clipReveal/svgDraw/motionBlurSamples; customHtmlFile only for exotic shots). `$ULTRA validate-spec`.
+3. Rule 2 ASSETS: `$ULTRA asset-plan` → generate EVERY listed asset natively (image/video/music/SFX/voice/SVG/PNG-alpha/scene_graph.json) to its targetPath → `$ULTRA validate-assets`.
+4. Rules 3/4 BUILD: `$ULTRA build` (frame-stepped, zero jitter, SHA-1 cache, automatic engine fallback).
+5. Rule 5 VERIFY: `$ULTRA verify <ref.mp4>`. Inspect EVERY build/audit-frames/pair_*.png (Left ORIGINAL / Right DRAFT), SSIM sceneSimilarity[] and verify-report.json. Score the 100-pt rubric. Any critical defect, stutterEvents > 0, or score < 90 → write workspace/patch.json → `$ULTRA patch workspace/patch.json && $ULTRA build && $ULTRA verify <ref.mp4>` (max 3 rounds).
+6. Rule 6 RENDER: `$ULTRA render` only when verification passes. Deliver build/ultra-final.mp4 + rubric scores + engine table + patch history.
+Anti-slop: reference palette only, no Arial/Times defaults, no neon-purple AI gradients, real easing keyed to probe cuts/beats.

@@ -27,6 +27,56 @@ be false in a fresh VM — expected: vector scenes use the built-in choreography
 runtime and every engine falls back to HyperFrames. Then:
 `ULTRA="node ultra-workflow/dist/ultra.mjs"` (or `node ultra/ultra.mjs` from the zip).
 
+## Process router — recognise the user's intent FIRST
+
+| User says | Process | Prompt + flow |
+|---|---|---|
+| 1–10 reference videos · “extract the style” · “make a style pack” | **1 · EXTRACT STYLE** | `prompts/PROCESS1_EXTRACT_STYLE.txt` · `style-probe` → write pack → `style-validate` (exit 0) → `style-export` → deliver `<slug>-style-pack.zip` |
+| one reference video · “clone this video” | **2A · CLONE REFERENCE** | `prompts/PROCESS2A_CLONE_REFERENCE.txt` · rules 1–6 below |
+| “my video in this style” · installed `--style <slug>` | **2B · EDIT MY VIDEO IN STYLE** | `prompts/PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt` · `raw-probe` → `sourceClip` scenes → `verify --style` |
+
+Style Packs live in `styles/<slug>/` with `styles/registry.json`; users import
+downloaded packs in Qoder via `prompts/QODER_IMPORT_STYLE_TO_REPO.txt`
+(`style-import <zip> --repack`). Every future chat can then use `--style <slug>`.
+
+**Never skip** `style-validate` / `style-export` (Process 1) or Rule 5 `verify`
+(2A/2B). A Style Pack is invalid until `style-validate` exits 0.
+
+## Process 1 · EXTRACT STYLE (1–10 videos → downloadable pack)
+
+1. `$ULTRA style-probe <ref1..refN> --out workspace/style-probe --hook-window <sec>`.
+2. Inspect `aggregate.json` (Hook/Body/Outro ASL min/median/max, longest static
+   hold, silence distribution, beat-snap ratio, palette clusters, luminance/
+   contrast/saturation), `batch-overview.png`, every contact sheet and
+   `candidates/*.png` natively. Map-Reduce across all 8 groups.
+3. Author the pack: `style.json` exactly matching `core/style-schema.ts`,
+   `STYLE.md` ≥300 chars citing measurements, 2–8 `exemplars/`, deterministic
+   offline `motifs/*.html` using `__ULTRA_SEEK` (no CDN `<script src=http…>`),
+   optional `grade.cube` referenced via `colorAndTexture.lutFile`, optional `assets/`.
+4. `$ULTRA style-validate <dir>` until exit 0 → `$ULTRA style-export <dir> --out build/<slug>-style-pack.zip`
+   → deliver the single zip with a summary table. Do not deliver an unvalidated pack.
+
+## Process 2B · EDIT MY VIDEO IN STYLE
+
+1. `$ULTRA style-list` → choose `--style <slug>`.
+2. `$ULTRA raw-probe my_video.mp4 --style <slug> --out workspace/raw-probe` →
+   inspect `raw-edit-plan.json` (silence/dead-air intervals, keepSegments,
+   hookEnd, targetBodyAslSec, maxStaticHoldSec, punchInPoints, brollCutaways,
+   captionWindows, chapter resets).
+3. Author `ultra.json` from the plan: `sourceClip: {path, inSec, outSec,
+   jCutLeadSec, lCutTrailSec, scale, panX, panY, cropMode, muteSourceAudio}`
+   scenes render trimmed footage with camera punch-ins, styled word-highlighted
+   captions, motif/Revideo/3D overlays, the style's colorGrade + grain; only
+   transitions allowed by `style.transitions` (never `bannedTypes`).
+4. `$ULTRA validate-spec` → `asset-plan`/`validate-assets` (if overlays/music) →
+   `$ULTRA build`.
+5. `$ULTRA verify --style <slug>`: quantitative gate (CFR, `stutterEvents === 0`,
+   no black frames, LUFS within ±1.5 of style target) + style compliance (ASL
+   ranges, maxStaticHoldSec, banned transitions, palette distance) +
+   `build/audit-frames/style-match.png`. Inspect it natively (STYLE EXEMPLAR vs
+   YOUR EDIT), grade Style Match 0–100; patch weak scenes (≤3 rounds) until ≥90.
+6. `$ULTRA render` → deliver MP4 + compliance block + match score + patch history.
+
 ## 1 · ANALYZE (Rule 1 — measure, never guess)
 
 ```bash
@@ -86,11 +136,12 @@ $ULTRA build
 Frame-stepped (zero rAF drift), SHA-1 cached; fallbacks recorded in
 `build/build-manifest.json`. Draft → `build/draft.mp4`.
 
-## 4 · VERIFY (Rule 5)
+## 4 · VERIFY (Rule 5 — 2A reference clone)
 
 ```bash
 $ULTRA verify <reference.mp4>
 ```
+(Process 2B instead runs `$ULTRA verify --style <slug>` — see its section above.)
 Inspect `build/verify-report.json` and EVERY `build/audit-frames/pair_XX.png`
 (Left ORIGINAL / Right DRAFT). The report now includes:
 - `quantitative.stutterEvents` (**strict gate: must be 0**), `staticHoldFrames`

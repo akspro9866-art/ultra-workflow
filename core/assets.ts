@@ -27,6 +27,19 @@ export function resolveAssetPath(workspace: string, asset: AssetSpecT): string {
   return resolveInside(workspace, asset.targetPath);
 }
 
+/** Resolve a sourceClip path relative to the project root (cwd) or the workspace. */
+export async function resolveSourceClipPath(workspace: string, p: string): Promise<string> {
+  if (path.isAbsolute(p)) {
+    if (await pathExists(p)) return p;
+    throw new Error(`sourceClip path not found: ${p}`);
+  }
+  const candidates = [path.resolve(process.cwd(), p), path.resolve(workspace, p)];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+  throw new Error(`sourceClip path not found (tried project root and workspace): ${p}`);
+}
+
 function isWellFormedXml(text: string): { ok: boolean; reason?: string } {
   const cleaned = text
     .replace(/<\?[\s\S]*?\?>/g, "")

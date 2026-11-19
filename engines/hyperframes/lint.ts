@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { LintDefectT } from "../../core/schema.js";
 import type { LintContext, LintResult } from "../types.js";
 import { compileSceneHtml, paletteFor } from "./compiler.js";
-import { newPage, closePage, settlePage } from "../../core/browser.js";
+import { newPage, closePage, settlePage, waitForVideos } from "../../core/browser.js";
 import { ensureDir } from "../../core/util.js";
 
 const CRITICAL = new Set(["clip", "brokenMedia", "blankFrame", "palette"]);
@@ -80,7 +80,8 @@ window.__ULTRA_AUDIT = function (params) {
     var rect = el.getBoundingClientRect();
     if (rect.width < 0.5 && rect.height < 0.5) return;
     visible.push({ el: el, uid: el.getAttribute("data-uid") || "?", rect: rect });
-    if (rect.left < -1 || rect.top < -1 || rect.right > vw + 1 || rect.bottom > vh + 1) {
+    var clipExempt = el.getAttribute("data-clip-exempt") === "true";
+    if (!clipExempt && (rect.left < -1 || rect.top < -1 || rect.right > vw + 1 || rect.bottom > vh + 1)) {
       problems.push({
         category: "clip",
         detail: '"' + el.getAttribute("data-uid") + '" extends outside the ' + vw + "x" + vh + " viewport (" +
@@ -213,6 +214,7 @@ export async function lintScene(ctx: LintContext): Promise<LintResult> {
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
     await page.addScriptTag({ content: AUDIT_SCRIPT });
     await settlePage(page);
+    await waitForVideos(page);
     const auditArgs = JSON.stringify({ allowedPalette: palette, background: sceneBg });
     for (const frameIndex of frameIndices) {
       await page.evaluate(`window.__ULTRA_SEEK(${frameIndex}, ${fps})`);

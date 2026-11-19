@@ -1,8 +1,11 @@
-Attached/available: reference video. Ultra is zero-install, offline, zero-API. No npm install, no AI APIs, no internet.
+You have Ultra Workflow v3 available — zero-install, offline, zero-API. Pick the process matching my request, then follow its prompt file from the repo:
 
-1. Primary: `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Fallback (no GitHub): unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`. Then read SKILL.md and follow it exactly.
-2. `probe <my-reference.mp4>` — inspect probe.json (cuts, per-scene palettes, luminance/contrast, audio-envelope beats) and every contact sheet + probe frame natively with your vision.
-3. Write workspace/DESIGN.md (measured palette/type/texture), Motion.md, ultra.json. Use primitives (reveal/camera/clipReveal/svgDraw/motionBlurSamples). For exotic shots author workspace/scenes/<name>.html with window.ultraRender(frame,fps,t,progress,audio) + window.UltraEase via "customHtmlFile". Vector scenes: engine "revideo" + enginePayload.sceneType vectors/chart/counter/code. Then `validate-spec`.
-4. `asset-plan` → generate EVERY listed asset natively to its targetPath → `validate-assets`.
-5. `build`, then `verify <my-reference.mp4>`: inspect EVERY build/audit-frames/pair_*.png, SSIM sceneSimilarity[] and verify-report.json; score the 100-point rubric. Any critical defect, score < 90, or stutterEvents > 0 → workspace/patch.json → `patch`, `build`, `verify` (max 3 rounds).
-6. Only when verification passes: `render`, then deliver build/ultra-final.mp4 with rubric scores, engine table and patch history. Enforce the anti-slop checklist in SKILL.md (reference palette only, no Arial/Times defaults, no neon-purple AI gradients, real easing, stutterEvents 0).
+Repo: https://github.com/akspro9866-art/ultra-workflow
+Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json` (fallback: unzip ultra-workflow-cloud.zip → `node ultra/ultra.mjs doctor --json`). Then read SKILL.md.
+
+Choose ONE:
+- I uploaded 1–10 reference videos and want a reusable style → PROCESS 1: follow prompts/PROCESS1_EXTRACT_STYLE.txt (style-probe → Map-Reduce 8 groups → author style.json/STYLE.md/motifs/exemplars → style-validate exit 0 → style-export) and deliver `<slug>-style-pack.zip` for me to download.
+- I uploaded one reference video and want it recreated 1:1 → PROCESS 2A: follow prompts/PROCESS2A_CLONE_REFERENCE.txt (probe → DESIGN/Motion/ultra.json → assets → build → verify <ref> → patch ≤3 → render).
+- I uploaded my own footage and named a style (--style <slug>) → PROCESS 2B: follow prompts/PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt (style-list → raw-probe → sourceClip edit plan → build → verify --style → style-match grading → render).
+
+Hard gates: never skip style-validate/style-export (Process 1) or Rule 5 verify (2A/2B); stutterEvents must be 0; style compliance must pass and your visual style-match score must be ≥90; deliver build/ultra-final.mp4 + rubric/style scores + patch history. No AI APIs, no API keys, no npm install.

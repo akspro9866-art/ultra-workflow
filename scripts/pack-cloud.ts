@@ -1,16 +1,16 @@
-import archiver from "archiver";
-import { createWriteStream, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
 import { installRoot } from "../core/env.js";
 import { ensureDir, pathExists, rmrf, writeJsonAtomic } from "../core/util.js";
+import { createZip } from "../core/zip.js";
 
 const CLOUD_PACKAGE = {
   name: "ultra-workflow",
-  version: "1.1.0",
+  version: "3.0.0",
   private: true,
   type: "module",
-  description: "Zero-API, zero-install deterministic video compiler for agent chat sandboxes.",
+  description: "Zero-API, zero-install deterministic video recreation + style-pack workflow for agent chat sandboxes.",
 };
 
 const LAUNCHER_SH = `#!/bin/sh
@@ -47,6 +47,7 @@ async function bundleCli(root: string, dist: string): Promise<number> {
 async function copyDir(src: string, dest: string): Promise<number> {
   let count = 0;
   for (const entry of await fs.readdir(src, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "pack-cloud") continue;
     const from = path.join(src, entry.name);
     const to = path.join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
   await fs.copyFile(path.join(dist, "ultra.mjs"), path.join(stage, "ultra.mjs"));
   await writeJsonAtomic(path.join(stage, "package.json"), CLOUD_PACKAGE);
 
-  const vendorCount = await copyDir(path.join(root, "assets", "vendor"), path.join(stage, "assets", "vendor"));
+  let vendorCount = await copyDir(path.join(root, "assets", "vendor"), path.join(stage, "assets", "vendor"));
 
   await ensureDir(path.join(stage, "engines", "blender"));
   await fs.copyFile(
@@ -92,55 +93,54 @@ async function main(): Promise<void> {
     await fs.copyFile(path.join(root, doc), path.join(stage, doc));
   }
 
+  // v3: installed Style Packs + ready-to-paste prompts travel with the bundle.
+  let styleCount = 0;
+  if (await pathExists(path.join(root, "styles"))) {
+    styleCount = await copyDir(path.join(root, "styles"), path.join(stage, "styles"));
+  } else {
+    await ensureDir(path.join(stage, "styles"));
+    await writeJsonAtomic(path.join(stage, "styles", "registry.json"), { updatedAt: new Date().toISOString(), styles: [] });
+  }
+  let promptCount = 0;
+  if (await pathExists(path.join(root, "prompts"))) {
+    promptCount = await copyDir(path.join(root, "prompts"), path.join(stage, "prompts"));
+  }
+
   await fs.copyFile(path.join(dist, "ultra"), path.join(stage, "ultra"));
   await fs.chmod(path.join(stage, "ultra"), 0o755);
   await fs.copyFile(path.join(dist, "ultra.cmd"), path.join(stage, "ultra.cmd"));
 
   const zipPath = path.join(dist, "ultra-workflow-cloud.zip");
-  await rmrf(zipPath);
-  const stageFiles: string[] = [];
+  const files: { name: string; source: string; mode?: number }[] = [];
   const collect = async (dir: string): Promise<void> => {
     for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await collect(full);
-      else stageFiles.push(path.relative(stage, full).split(path.sep).join("/"));
+      else {
+        const rel = path.relative(stage, full).split(path.sep).join("/");
+        files.push({ name: rel, source: full, ...(rel === "ultra" ? { mode: 0o755 } : {}) });
+      }
     }
   };
   await collect(stage);
-  await new Promise<void>((resolve, reject) => {
-    const output = createWriteStream(zipPath);
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    output.on("close", () => resolve());
-    archive.on("error", reject);
-    archive.on("warning", (err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-      reject(err);
-    });
-    archive.pipe(output);
-    for (const rel of stageFiles.sort()) {
-      archive.file(path.join(stage, ...rel.split("/")), {
-        name: rel,
-        ...(rel === "ultra" ? { mode: 0o755 } : {}),
-      });
-    }
-    void archive.finalize();
-  });
+  const zip = await createZip(files, zipPath);
 
-  const stat = await fs.stat(zipPath);
-  const zipMiB = stat.size / (1024 * 1024);
-  if (zipMiB > 3) {
-    throw new Error(`cloud zip exceeds the 3 MB hard limit (${zipMiB.toFixed(2)} MiB)`);
+  const zipMiB = zip.bytes / (1024 * 1024);
+  if (zipMiB > 10) {
+    throw new Error(`cloud zip exceeds the 10 MiB limit (${zipMiB.toFixed(2)} MiB) — compress exemplars/motifs`);
   }
   if (zipMiB > 2.5) {
-    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (target < 2.5 MiB)`);
+    console.warn(`[pack:cloud] warning: zip is ${zipMiB.toFixed(2)} MiB (v1 target was < 2.5 MiB; v3 limit is 10 MiB)`);
   }
   await rmrf(stage);
 
   console.log(`pack:cloud → ${zipPath}`);
   console.log(
-    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} files · zip ${(stat.size / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
+    `  ultra.mjs ${(bundleBytes / 1024).toFixed(1)} KiB · vendor ${vendorCount} · styles ${styleCount} · prompts ${promptCount} · zip ${(zip.bytes / 1024).toFixed(1)} KiB (${zipMiB.toFixed(2)} MiB)`,
   );
-  console.log(`  zero-install contents: ultra.mjs, ultra, ultra.cmd, package.json, assets/vendor/, engines/blender/render_scene.py, SKILL.md, CHAT_START_PROMPT.txt, SPEC.md, README.md`);
+  console.log(
+    `  contents: ultra.mjs, ultra, ultra.cmd, package.json, assets/vendor/, styles/ (+registry), prompts/, engines/blender/render_scene.py, docs`,
+  );
 }
 
 main().catch((err) => {

@@ -1,4 +1,5 @@
 import { ffmpeg, ffprobeJson, parseRational } from "../core/ffmpeg.js";
+import { measureJitter } from "../core/jitter.js";
 import { round } from "../core/util.js";
 
 export interface LoudnessAudit {
@@ -22,19 +23,12 @@ export interface QuantitativeMetrics {
   stutterEvents: number;
   stutterFrames: number;
   jitterRatio: number;
+  maxStaticHoldSec: number;
   jitterOk: boolean;
   blackDetections: { startSec: number; endSec: number }[];
   blackOk: boolean;
   loudness: LoudnessAudit | null;
   pass: boolean;
-}
-
-function lastMatch(text: string, re: RegExp): RegExpExecArray | null {
-  let last: RegExpExecArray | null = null;
-  let match: RegExpExecArray | null;
-  const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
-  while ((match = global.exec(text)) !== null) last = match;
-  return last;
 }
 
 function parseLoudnorm(text: string): { inputI: number | null; inputTp: number | null } {
@@ -53,93 +47,6 @@ function parseLoudnorm(text: string): { inputI: number | null; inputTp: number |
     }
   }
   return { inputI: null, inputTp: null };
-}
-
-/**
- * Smart duplicate-run classification.
- *
- * Frame differences are measured exactly with
- * `format=gray,tblend=all_mode=difference,signalstats,metadata=print` (YAVG per
- * frame pair). A pair with YAVG <= 0.12 is a duplicate frame (the epsilon sits
- * safely above H.264 quantization noise across frame types — identical frames
- * typically decode with YAVG 0.003–0.03). Consecutive duplicate runs
- * >= round(fps * 0.25) are intentional STATIC HOLDS; isolated 2–3 duplicate
- * frames surrounded by motion are STUTTER (real jitter). A lone duplicated
- * frame is a micro-hold: smooth easing curves (sine/easeOutBack apexes) pause
- * for exactly one frame at their turning points, which is imperceptible and not
- * a defect. Single-frame noise gaps (diff < 0.25) are bridged so encoder noise
- * cannot fabricate stutter.
- */
-function classifyDuplicateRuns(
-  diffs: number[],
-  totalFrames: number,
-  fps: number,
-): { staticHoldFrames: number; stutterEvents: number; stutterFrames: number; duplicateFrames: number } {
-  const holdThreshold = Math.max(2, Math.round(fps * 0.25));
-  const EPSILON = 0.12;
-  const duplicate = diffs.map((d) => d <= EPSILON);
-
-  // Bridge short noise gaps between duplicate runs (encoder QP noise).
-  for (let pass = 0; pass < 3; pass += 1) {
-    let changed = false;
-    for (let i = 1; i < duplicate.length - 1; i += 1) {
-      if (duplicate[i]) continue;
-      const prevDup = duplicate[i - 1] === true;
-      const nextDup = duplicate[i + 1] === true;
-      if (prevDup && nextDup && (diffs[i] as number) < 0.25) {
-        duplicate[i] = true;
-        changed = true;
-        continue;
-      }
-      if (
-        prevDup &&
-        i + 2 < duplicate.length &&
-        duplicate[i + 1] === false &&
-        duplicate[i + 2] === true &&
-        (diffs[i] as number) < 0.25 &&
-        (diffs[i + 1] as number) < 0.25
-      ) {
-        duplicate[i] = true;
-        duplicate[i + 1] = true;
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
-
-  const runs: { start: number; length: number }[] = [];
-  let i = 0;
-  while (i < duplicate.length) {
-    if (!duplicate[i]) {
-      i += 1;
-      continue;
-    }
-    let j = i;
-    while (j < duplicate.length && duplicate[j]) j += 1;
-    // diffs[k] corresponds to frame k+1 being a duplicate of frame k
-    runs.push({ start: i + 1, length: j - i });
-    i = j;
-  }
-
-  let staticHoldFrames = 0;
-  let stutterEvents = 0;
-  let stutterFrames = 0;
-  const duplicateFrames = runs.reduce((acc, run) => acc + run.length, 0);
-
-  for (const run of runs) {
-    const endsAtStart = run.start === 1;
-    const endsAtEnd = run.start + run.length >= totalFrames - 1;
-    if (run.length >= holdThreshold) staticHoldFrames += run.length;
-    else if (run.length >= 2 && run.length <= 3 && !endsAtStart && !endsAtEnd) {
-      stutterEvents += 1;
-      stutterFrames += run.length;
-    } else {
-      // long holds, boundary holds and single-frame micro-holds
-      staticHoldFrames += run.length;
-    }
-  }
-
-  return { staticHoldFrames, stutterEvents, stutterFrames, duplicateFrames };
 }
 
 export async function auditDraft(opts: {
@@ -175,35 +82,17 @@ export async function auditDraft(opts: {
   let stutterEvents = 0;
   let stutterFrames = 0;
   let jitterRatio = 0;
+  let maxStaticHoldSec = 0;
   try {
-    const dup = await ffmpeg(
-      [
-        "-i",
-        opts.draftFile,
-        "-vf",
-        "format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
-        "-an",
-        "-f",
-        "null",
-        "-",
-      ],
-      { timeoutMs: 10 * 60_000 },
-    );
-    const diffs: number[] = [];
-    const re = /lavfi\.signalstats\.YAVG=([0-9]+(?:\.[0-9]+)?)/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(dup.stderr)) !== null) {
-      const v = Number(m[1]);
-      if (Number.isFinite(v)) diffs.push(v);
-    }
-    if (totalFrames > 0 && diffs.length > 0) {
-      const classified = classifyDuplicateRuns(diffs, totalFrames, opts.expectedFps);
-      duplicateRatio = round(classified.duplicateFrames / totalFrames, 4);
-      staticHoldFrames = classified.staticHoldFrames;
+    const analysis = await measureJitter(opts.draftFile, opts.expectedFps, totalFrames);
+    if (analysis.frameDiffs.length > 0 && totalFrames > 0) {
+      duplicateRatio = round(analysis.duplicateFrames / totalFrames, 4);
+      staticHoldFrames = analysis.staticHoldFrames;
       staticHoldRatio = round(staticHoldFrames / totalFrames, 4);
-      stutterEvents = classified.stutterEvents;
-      stutterFrames = classified.stutterFrames;
+      stutterEvents = analysis.stutterEvents;
+      stutterFrames = analysis.stutterFrames;
       jitterRatio = round(stutterFrames / totalFrames, 4);
+      maxStaticHoldSec = analysis.maxStaticHoldSec;
     }
   } catch {
     duplicateRatio = null;
@@ -261,6 +150,7 @@ export async function auditDraft(opts: {
     stutterEvents,
     stutterFrames,
     jitterRatio,
+    maxStaticHoldSec,
     jitterOk,
     blackDetections,
     blackOk,

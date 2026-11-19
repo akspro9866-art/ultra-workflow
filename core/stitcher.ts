@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ffmpegOk } from "./ffmpeg.js";
+import { ffmpegOk, ffprobeJson } from "./ffmpeg.js";
 import type { SceneSpecT, UltraProjectT } from "./schema.js";
-import { resolveAssetPath } from "./assets.js";
+import { resolveAssetPath, resolveSourceClipPath } from "./assets.js";
 import { ensureDir, pathExists, resolveInside, round } from "./util.js";
 
 export interface StitchClip {
@@ -256,7 +256,51 @@ export async function stitchTimeline(opts: StitchOptions): Promise<StitchResult>
 
   const grade = buildGradeChain(project, workspace, currentV);
   let filterGraph = `${filters.join(";")};${grade.chain}`;
-  const hasAnyAudio = Boolean(musicAsset || voiceAsset || sfxAssets.length > 0);
+
+  // Process 2B: trimmed audio from the user's own source clips (J-cuts / L-cuts).
+  interface SourceAudioEntry {
+    index: number;
+    startSec: number;
+    inSec: number;
+    outSec: number;
+    jCutLeadSec: number;
+    lCutTrailSec: number;
+  }
+  const sourceAudioEntries: SourceAudioEntry[] = [];
+  const audioPresence = new Map<string, boolean>();
+  for (const sourceScene of project.scenes
+    .filter((s) => s.sourceClip && !s.sourceClip.muteSourceAudio)
+    .sort((a, b) => a.startSec - b.startSec)) {
+    const clip = sourceScene.sourceClip;
+    if (!clip) continue;
+    let file: string;
+    try {
+      file = await resolveSourceClipPath(workspace, clip.path);
+    } catch {
+      continue;
+    }
+    if (!audioPresence.has(file)) {
+      try {
+        const probe = await ffprobeJson(file);
+        audioPresence.set(file, (probe.streams ?? []).some((s: any) => s.codec_type === "audio"));
+      } catch {
+        audioPresence.set(file, false);
+      }
+    }
+    if (!audioPresence.get(file)) continue;
+    const index = nextInput++;
+    args.push("-i", file);
+    sourceAudioEntries.push({
+      index,
+      startSec: sourceScene.startSec,
+      inSec: clip.inSec,
+      outSec: clip.outSec,
+      jCutLeadSec: clip.jCutLeadSec,
+      lCutTrailSec: clip.lCutTrailSec,
+    });
+  }
+
+  const hasAnyAudio = Boolean(musicAsset || voiceAsset || sfxAssets.length > 0 || sourceAudioEntries.length > 0);
   if (hasAnyAudio) {
     const audioChains: string[] = [];
     const mixLabels: string[] = [];
@@ -288,6 +332,16 @@ export async function stitchTimeline(opts: StitchOptions): Promise<StitchResult>
           cue.gainDb,
           2,
         )}dB,adelay=${Math.round(cue.atSec * 1000)}|${Math.round(cue.atSec * 1000)},apad=whole_dur=${durStr},atrim=0:${durStr}[${label}]`,
+      );
+      mixLabels.push(`[${label}]`);
+    });
+    sourceAudioEntries.forEach((entry, i) => {
+      const label = `sclip${i}`;
+      const audioIn = Math.max(0, entry.inSec - entry.jCutLeadSec);
+      const audioOut = Math.max(audioIn + 0.05, entry.outSec + entry.lCutTrailSec);
+      const delayMs = Math.round(Math.max(0, entry.startSec) * 1000);
+      audioChains.push(
+        `[${entry.index}:a]atrim=start=${audioIn.toFixed(3)}:end=${audioOut.toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delayMs}|${delayMs},apad=whole_dur=${durStr},atrim=0:${durStr}[${label}]`,
       );
       mixLabels.push(`[${label}]`);
     });

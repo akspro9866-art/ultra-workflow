@@ -1,0 +1,12 @@
+PROCESS 1 — EXTRACT STYLE (1–10 reference videos → downloadable Style Pack)
+
+Attached: 1–10 reference videos. Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
+
+1. Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Set ULTRA="node ultra-workflow/dist/ultra.mjs".
+2. Run: `$ULTRA style-probe <ref1.mp4> ... <refN.mp4> --out workspace/style-probe --hook-window <hookWindowSec>`.
+3. Natively inspect workspace/style-probe/aggregate.json, batch-overview.png, every ref-XX/contact-sheet-*.png and candidates/*.png. Do a Map-Reduce across all 8 groups from aggregate data: Pacing & Cut Grammar, Camera & Motion Physics, Typography & Captions, A-Roll/B-Roll Visual Layering, Color Grade & Texture Stack, Transition Vocabulary, Sound Design & Mix DNA, Hook & Narrative Structure.
+4. Pick 4–6 clean candidate stills per reference into your pack `exemplars/` (2–8 total). Author a deterministic offline motif (motifs/*.html) that uses `window.__ULTRA_SEEK`; no CDN scripts.
+5. Write a pack directory `<slug>/` containing: `style.json` matching the strict schema in `core/style-schema.ts` (all 8 groups, real measured values — no generic guesses), `STYLE.md` (≥300 chars, cite the measurements), `exemplars/`, `motifs/`, optional `grade.cube` (only if referenced by `colorAndTexture.lutFile`) and signature `assets/`. Slug must be lowercase-dashed (e.g., `punchy-tech`).
+6. Validate until exit 0: `$ULTRA style-validate <slug>`.
+7. Package for download: `$ULTRA style-export <slug> --out build/<slug>-style-pack.zip`.
+8. Deliver the single `.zip` plus a summary table: slug, referenceCount, ASL hook/body/outro, maxStaticHoldSec, beatSnapRatio, palette hexes, motifs, exemplars. The user will download it and import it in Qoder with prompts/QODER_IMPORT_STYLE_TO_REPO.txt. Never skip style-validate or style-export.

@@ -35,6 +35,25 @@ or Playwright/Puppeteer cache; `ULTRA_BROWSER_PATH` overrides) and needs nothing
 else. Paste `CHAT_START_PROMPT.txt` into a fresh Gemini/Muse chat; the bundled
 `SKILL.md` is the autonomous playbook.
 
+## Two first-class processes (v3)
+
+| Process | Prompt file | What it does |
+|---|---|---|
+| **1 · EXTRACT STYLE** (1–10 references → downloadable pack) | `prompts/PROCESS1_EXTRACT_STYLE.txt` | `ultra style-probe` measures ASL/silence/beat-snap/palettes/audio envelope across all clips → agent Map-Reduces 8 style groups, authors `style.json` + `STYLE.md` + offline `motifs/*.html` + `exemplars/` → `style-validate` → `style-export` → delivers `<slug>-style-pack.zip` |
+| **2A · CLONE REFERENCE** | `prompts/PROCESS2A_CLONE_REFERENCE.txt` | the original 1:1 pipeline (`probe → assets → build → verify <ref> → patch → render`) |
+| **2B · EDIT MY VIDEO IN STYLE** | `prompts/PROCESS2B_EDIT_MY_VIDEO_IN_STYLE.txt` | `raw-probe my_video.mp4 --style <slug>` → `sourceClip` trims with J/L cuts, punch-ins, styled captions → `build` → `verify --style <slug>` (style compliance + `stutterEvents === 0` + `style-match.png`) → `render` |
+
+Users import downloaded packs in Qoder with `prompts/QODER_IMPORT_STYLE_TO_REPO.txt`:
+`node dist/ultra.mjs style-import <slug>-style-pack.zip --repack` installs to
+`styles/<slug>/`, updates `styles/registry.json` and repacks the cloud zip, so
+every future Gemini/Muse chat can use `--style <slug>`.
+
+New v3 CLI: `style-probe`, `style-list`, `style-validate`, `style-export`,
+`style-import`, `raw-probe`, and `verify --style <slug>` (the reference-clone
+`verify <ref.mp4>` is unchanged). Scene specs now support
+`sourceClip: { path, inSec, outSec, muteSourceAudio, jCutLeadSec, lCutTrailSec,
+scale, panX, panY, cropMode }` for editing the user's own footage.
+
 ## Scene authoring: primitives + escape hatch
 
 `ultra.json` primitives cover structured motion: keyframes/easing, split-text
@@ -82,6 +101,7 @@ npm run setup:engines
 | phase5 | transparent 3D overlay (Three.js fallback / native Blender) + composite |
 | phase6 | verify → break → patch → rebuild → verify → render (strict stutter gate) |
 | phase7 | **isolated zero-install cloud run** from the packed zip (custom HTML + vector choreography + 3D alpha + verify + render) |
+| phase8 | **dual-process style system**: style-probe → pack validate/export/import → raw-probe silence edit plan → sourceClip build → `verify --style` compliance + style-match.png → render |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs
@@ -89,7 +109,11 @@ npm run setup:engines
 `workspace/probe.json`, `workspace/probe-frames/`, `contact-sheet-*.png`,
 `workspace/audio-envelope.json`, `workspace/assets-todo.json` +
 `assets.manifest.json`, `build/build-manifest.json`, `build/scenes/`,
-`build/draft.mp4`, `build/audit-frames/pair_*.png`, `build/verify-report.json`
-(quantitative flags + SSIM sceneSimilarity + 100-pt rubric), `build/ultra-final.mp4`.
+`build/draft.mp4`, `build/audit-frames/pair_*.png` (2A) or
+`build/audit-frames/style-match.png` (2B), `build/verify-report.json`
+(quantitative flags + SSIM sceneSimilarity + style compliance + 100-pt rubric),
+`build/ultra-final.mp4`. Style workflow: `workspace/style-probe/aggregate.json` +
+`batch-overview.png` + `candidates/`, `workspace/raw-probe/raw-edit-plan.json`,
+`styles/<slug>/` packs, `build/<slug>-style-pack.zip`.
 
 See `SPEC.md` for the full contract.

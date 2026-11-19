@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { SceneSpecT, UltraProjectT } from "../../core/schema.js";
-import { resolveAssetPath } from "../../core/assets.js";
+import { resolveAssetPath, resolveSourceClipPath } from "../../core/assets.js";
 import { buildChoreography } from "./choreo.js";
 import { fontStack, htmlEscape, normalizeHex, rgba } from "./style.js";
 
@@ -278,7 +278,9 @@ const PAGE_RUNTIME = String.raw`
     for (var v = 0; v < videos.length; v += 1) {
       var video = videos[v];
       if (!isFinite(video.duration) || video.duration <= 0) continue;
-      var target = Math.min(t, video.duration - 0.001);
+      var offsetAttr = video.getAttribute("data-source-in");
+      var base = offsetAttr !== null ? (parseFloat(offsetAttr) || 0) : 0;
+      var target = Math.min(base + t, video.duration - 0.001);
       if (Math.abs(video.currentTime - target) > 0.0008) {
         await new Promise(function (resolve) {
           var done = false;
@@ -362,7 +364,9 @@ const CUSTOM_RUNTIME = String.raw`
     for (var v = 0; v < videos.length; v += 1) {
       var video = videos[v];
       if (!isFinite(video.duration) || video.duration <= 0) continue;
-      var target = Math.min(t, video.duration - 0.001);
+      var offsetAttr = video.getAttribute("data-source-in");
+      var base = offsetAttr !== null ? (parseFloat(offsetAttr) || 0) : 0;
+      var target = Math.min(base + t, video.duration - 0.001);
       if (Math.abs(video.currentTime - target) > 0.0008) {
         await new Promise(function (resolve) {
           var done = false;
@@ -477,6 +481,16 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
   const reveals: Record<string, unknown>[] = [];
   const svgDraws: Record<string, unknown>[] = [];
   const layerHtml: string[] = [];
+
+  // Process 2B: trimmed segment of the user's own footage behind all layers.
+  let sourceHtml = "";
+  if (scene.sourceClip) {
+    const clip = scene.sourceClip;
+    const sourcePath = await resolveSourceClipPath(workspace, clip.path);
+    const url = pathToFileURL(sourcePath).href;
+    elements.push({ uid: "source-clip", x: 0, y: 0, opacity: 1, rotation: 0 });
+    sourceHtml = `<div class="layer media source-clip" data-audit="el" data-clip-exempt="true" data-uid="source-clip" style="left:0;top:0;width:${width}px;height:${height}px;z-index:1;overflow:hidden"><video src="${url}" muted playsinline preload="auto" data-source-in="${clip.inSec}" style="width:100%;height:100%;object-fit:${clip.cropMode};transform:translate(${clip.panX}px,${clip.panY}px) scale(${clip.scale})"></video></div>`;
+  }
 
   for (let index = 0; index < scene.layers.length; index += 1) {
     const layer = scene.layers[index] as SceneSpecT["layers"][number];
@@ -668,6 +682,7 @@ export async function compileSceneHtml(opts: CompileOptions): Promise<string> {
   <div id="stage">
     <div id="camera">
       <div id="content">
+      ${sourceHtml}
       ${layerHtml.join("\n      ")}
       ${choreo ? choreo.html : ""}
       ${textHtml.join("\n      ")}

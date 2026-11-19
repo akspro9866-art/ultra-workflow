@@ -124,3 +124,58 @@ real multi-scene build (bespoke custom HTML + vector choreography + Three.js
 alpha overlay + HyperFrames outro), `verify` (asserting `stutterEvents === 0`),
 and `render` to a playable `yuv420p` CFR MP4. `tests/test_blender_script.py`
 (mock-bpy) runs under `npm test` together with the 7 TypeScript suites.
+
+## 10. v3 — Dual-process style system
+
+**Process 1 · EXTRACT STYLE** (`ultra style-probe <refs...> [--out]`):
+1–10 references are probed (ffprobe, cuts, onsets, per-scene palettes, audio
+envelope, contact sheets, jitter-derived longest static hold, silencedetect,
+signalstats saturation) into `workspace/style-probe/aggregate.json` with
+Hook/Body/Outro ASL min/median/max, longest static hold, silence distribution,
+beat-snap ratio (±100ms), aggregated palette clusters, luminance/contrast/
+saturation; 5 candidate stills per reference (`candidates/`) and a combined
+`batch-overview.png`. The agent Map-Reduces all 8 groups and authors a pack:
+`style.json` (strict `StylePackSchema` in `core/style-schema.ts`: meta, pacing,
+motion, typography, visualLayering, colorAndTexture, transitions, soundDesign,
+narrative), `STYLE.md` (≥300 chars), `exemplars/` (2–8 PNG/JPEG/WebP with magic
+validation), deterministic `motifs/*.html` (`__ULTRA_SEEK`, no CDN scripts),
+optional `grade.cube` (`LUT_3D_SIZE`) and `assets/`. `ultra style-validate`
+rejects schema errors, short docs, bad exemplars, missing motif hooks, external
+CDN scripts, invalid LUTs, absolute machine paths and secrets.
+
+Lifecycle: `style-list` (registry view), `style-export` (validates, packages
+`<slug>-style-pack.zip` + `ADD_TO_REPO_IN_QODER.txt`), `style-import <zipOrDir>
+[--repack]` (pure-Node CRC-verified unzip, strict validation, installs into
+`styles/<slug>/`, rebuilds `styles/registry.json`, optionally runs
+`npm run pack:cloud` in dev repos so the pack ships inside the cloud zip).
+`prompts/` carries ready-to-paste PROCESS1 / PROCESS2A / PROCESS2B /
+QODER_IMPORT_STYLE_TO_REPO prompts.
+
+**Process 2B · EDIT MY VIDEO IN STYLE**: `ultra raw-probe <my_video.mp4>
+--style <slug>` re-probes the user's footage, detects silences with the style's
+`silenceTrimMs`, and writes `workspace/raw-probe/raw-edit-plan.json` (silences,
+removed intervals, keepSegments, hookEnd, chapter resets, target body ASL,
+maxStaticHoldSec, punch-in points, B-roll cutaways, caption windows, beats).
+Scenes accept `sourceClip: {path, inSec, outSec, muteSourceAudio, jCutLeadSec,
+lCutTrailSec, scale, panX, panY, cropMode}`; HyperFrames renders the trimmed
+footage deterministically (video seek = inSec + t, exact CFR, punch-in via
+`camera`/scale) and the stitcher mixes the source audio with J/L offsets,
+`adelay`, `sidechaincompress` and `loudnorm` alongside the style grade.
+
+**Style-aware Rule 5**: `ultra verify --style <slug>` keeps all quantitative
+gates (CFR, `stutterEvents === 0`, black frames, LUFS within ±1.5 dB of
+`style.soundDesign.targetLufs`) and adds a Style Compliance Audit: scene
+durations vs hook/body/outro ASL ranges (scene midpoints classified against
+`hookWindowSec` and the last 20% outro window), longest static hold vs
+`maxStaticHoldSec`, zero use of `transitions.bannedTypes`, and draft dominant
+palette distance (24-bucket RGB sampling; average nearest distance ≤ 110).
+`build/audit-frames/style-match.png` pairs 6 draft frames against
+`exemplars/*` labeled STYLE EXEMPLAR vs YOUR EDIT for the agent's 0–100 visual
+grading. `verify <ref.mp4>` (2A) remains unchanged.
+
+`tests/phase8.style-system.test.ts` covers the full lifecycle: synthetic
+ref1/ref2 → style-probe aggregates → authored demo-punchy pack → validate →
+export zip (CRC-checked) → import into an isolated temp repo + registry →
+raw-probe detects the deliberate 1.5s silence gap and emits keepSegments →
+sourceClip build with punch-in + styled captions + style grade → `verify --style`
+(compliance pass, stutterEvents 0, style-match.png) → renderable `yuv420p` CFR MP4.

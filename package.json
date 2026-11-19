@@ -23,6 +23,7 @@
     "test:phase5": "vitest run --config vitest.config.ts tests/phase5.blender-3d.test.ts",
     "test:phase6": "vitest run --config vitest.config.ts tests/phase6.verify-patch.test.ts",
     "test:phase7": "vitest run --config vitest.config.ts tests/phase7.cloud-bundle.test.ts",
+    "test:phase8": "vitest run --config vitest.config.ts tests/phase8.style-system.test.ts",
     "pack:cloud": "npm run build && node dist/scripts/pack-cloud.js",
     "setup:engines": "node scripts/setup-engines.mjs"
   },

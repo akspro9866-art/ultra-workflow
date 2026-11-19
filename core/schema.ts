@@ -66,6 +66,32 @@ export const CustomCode = z.object({
   js: z.string().default(""),
 });
 
+/** Trimmed segment of the user's own footage (Process 2B — Edit My Video in Style). */
+export const SourceClipSpec = z
+  .object({
+    path: z.string().min(1),
+    inSec: z.number().min(0),
+    outSec: z.number().positive(),
+    muteSourceAudio: z.boolean().default(false),
+    jCutLeadSec: z.number().min(0).max(5).default(0),
+    lCutTrailSec: z.number().min(0).max(5).default(0),
+    scale: z.number().min(0.2).max(4).default(1),
+    panX: z.number().min(-4000).max(4000).default(0),
+    panY: z.number().min(-4000).max(4000).default(0),
+    cropMode: z.enum(["cover", "contain"]).default("cover"),
+  })
+  .superRefine((clip, ctx) => {
+    if (clip.outSec <= clip.inSec) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `sourceClip outSec (${clip.outSec}) must be greater than inSec (${clip.inSec})`,
+        path: ["outSec"],
+      });
+    }
+  });
+
+export type SourceClipSpecT = z.infer<typeof SourceClipSpec>;
+
 /* ============================================================================
  * Project contract — workspace/ultra.json
  * ========================================================================== */
@@ -168,6 +194,7 @@ export const SceneSpec = z
     motionBlurSamples: z.number().int().min(1).max(4).default(1),
     camera: CameraRig.default({}),
     clipReveal: ClipRevealSpec.default({}),
+    sourceClip: SourceClipSpec.optional(),
   })
   .superRefine((scene, ctx) => {
     if (scene.endSec <= scene.startSec) {
@@ -476,6 +503,7 @@ export const VerifyReport = z.object({
     stutterEvents: z.number().int().min(0),
     stutterFrames: z.number().int().min(0),
     jitterRatio: z.number().min(0).max(1),
+    maxStaticHoldSec: z.number().min(0).default(0),
     jitterOk: z.boolean(),
     blackDetections: z.array(z.object({ startSec: z.number(), endSec: z.number() })),
     blackOk: z.boolean(),
@@ -526,6 +554,22 @@ export const VerifyReport = z.object({
     categories: z.array(RubricCategory),
     totalScore: z.number().nullable().default(null),
   }),
+  style: z
+    .object({
+      slug: z.string(),
+      compliance: z.object({
+        aslOk: z.boolean(),
+        staticHoldOk: z.boolean(),
+        transitionsOk: z.boolean(),
+        paletteOk: z.boolean(),
+        loudnessOk: z.boolean(),
+        paletteDistanceAvg: z.number(),
+        details: z.array(z.string()),
+        pass: z.boolean(),
+      }),
+      matchSheet: z.string().nullable(),
+    })
+    .optional(),
   pass: z.boolean(),
 });
 

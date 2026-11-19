@@ -1,0 +1,12 @@
+PROCESS 2B — EDIT MY VIDEO IN STYLE (raw footage + installed Style Pack)
+
+Attached: my_video.mp4 (my raw footage). Ultra is zero-install, offline, zero-API: https://github.com/akspro9866-art/ultra-workflow
+
+1. Boot (no npm install): `git clone https://github.com/akspro9866-art/ultra-workflow ultra-workflow && node ultra-workflow/dist/ultra.mjs doctor --json`. Set ULTRA="node ultra-workflow/dist/ultra.mjs".
+2. Pick the style: `$ULTRA style-list`. Use `--style <slug>` everywhere below (e.g., `punchy-tech`).
+3. Rule 1 ANALYZE MY FOOTAGE: `$ULTRA raw-probe my_video.mp4 --style <slug> --out workspace/raw-probe`. Natively inspect raw-edit-plan.json + probe.json + frames: silence intervals, keepSegments (dead air removed with the style's silenceTrimMs), hookEnd, targetBodyAslSec, maxStaticHoldSec, punchInPoints, brollCutaways, captionWindows, chapter resets.
+4. Author workspace/ultra.json from the edit plan (do NOT guess): scenes use `sourceClip: { path, inSec, outSec, muteSourceAudio:false, jCutLeadSec, lCutTrailSec, scale, panX, panY, cropMode }` for trimmed keep-segments; add camera punch-in keyframes at plan points, styled word-highlighted captions (style typography palette/casing/captionChunkWords), motifs/B-roll/Revideo/3D overlays per plan, style colorGrade + grain/halation, only allowed transitions (never style.transitions.bannedTypes). `$ULTRA validate-spec`.
+5. Rule 2 ASSETS (optional overlays/music/SFX): `$ULTRA asset-plan` → generate natively → `$ULTRA validate-assets`.
+6. BUILD: `$ULTRA build` (sourceClip scenes render trimmed footage with punch-ins, captions, grade; audio follows J/L cuts; exact CFR).
+7. Rule 5 STYLE VERIFY: `$ULTRA verify --style <slug> --draft build/draft.mp4`. Requirements: quantitative pass (stutterEvents === 0, no black frames, LUFS within ±1.5 of the style target), style compliance all OK (ASL ranges, maxStaticHoldSec, banned transitions, palette distance), and a generated build/audit-frames/style-match.png. Inspect it natively and grade Style Match (0–100) against STYLE EXEMPLAR vs YOUR EDIT. Patch weak scenes via `$ULTRA patch` and repeat build+verify (max 3 rounds) until score ≥ 90.
+8. RENDER: `$ULTRA render`. Deliver build/ultra-final.mp4 + style compliance block + match score + patch history.

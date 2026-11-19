@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { RenderContext, RenderOutcome, SceneEngine } from "../types.js";
 import { compileSceneHtml } from "./compiler.js";
 import { lintScene } from "./lint.js";
-import { closePage, getBrowserInfo, newPage, settlePage } from "../../core/browser.js";
+import { closePage, getBrowserInfo, newPage, settlePage, waitForVideos } from "../../core/browser.js";
 import { ensureDir, rmrf, round } from "../../core/util.js";
 import { ffmpegOk } from "../../core/ffmpeg.js";
 
@@ -112,6 +112,7 @@ export const hyperframesEngine: SceneEngine = {
     try {
       await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
       await settlePage(page);
+      await waitForVideos(page);
       for (let s = 0; s < samples; s += 1) {
         const seqDir = path.join(workDir, `s${s}`);
         await ensureDir(seqDir);

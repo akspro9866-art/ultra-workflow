@@ -1,0 +1,17 @@
+QODER — IMPORT A DOWNLOADED STYLE PACK INTO THE REPO
+
+I downloaded `<slug>-style-pack.zip` from a Gemini/Meta Muse chat. The file is here: <PASTE ABSOLUTE PATH OR DROP IT INTO THE REPO>
+
+In the `ultra-workflow` repo on `main`:
+
+1. Inspect the zip exists and note its path (keep the downloaded file untouched).
+2. Run: `node dist/ultra.mjs style-validate <unzipped-or-repo-copy>` is not needed first — import validates strictly.
+   Run: `node dist/ultra.mjs style-import "<path-to-zip>" --repack`
+   This must: validate the pack (style.json schema, STYLE.md ≥300 chars, 2–8 valid exemplars, motifs use __ULTRA_SEEK and no CDN scripts, optional grade.cube valid, zero machine paths/secrets), install it to `styles/<slug>/`, update `styles/registry.json`, and repack `dist/ultra-workflow-cloud.zip`.
+3. Verify: `node dist/ultra.mjs style-list --json` (slug present) and `node dist/ultra.mjs style-validate styles/<slug>` (exit 0).
+4. Run the full quality gate: `npm run typecheck && npm test` (all 8 phase suites + Python). Fix nothing by weakening tests; report failures honestly.
+5. Commit and push to GitHub:
+   `git add styles prompts dist/ultra.mjs dist/ultra-workflow-cloud.zip`
+   `git commit -m "style: add <slug> style pack"`
+   `git push origin main`
+6. Report: installed slug/version, registry contents, zip size, test summary (8 TS suites + Python), commit hash, and confirm `git ls-files styles/` lists the new pack. Do NOT delete the user's downloaded zip.

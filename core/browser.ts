@@ -129,3 +129,19 @@ export async function settlePage(page: UltraPage): Promise<void> {
   })()`);
   await page.waitForTimeout(30);
 }
+
+/** Wait until every <video> on the page has metadata (duration/seekable). */
+export async function waitForVideos(page: UltraPage, timeoutMs = 10_000): Promise<void> {
+  await page.evaluate(`(async () => {
+    var videos = Array.prototype.slice.call(document.querySelectorAll("video"));
+    await Promise.all(videos.map(function (video) {
+      if (video.readyState >= 1 && isFinite(video.duration)) return Promise.resolve();
+      return new Promise(function (resolve) {
+        function done() { resolve(); }
+        video.addEventListener("loadedmetadata", done, { once: true });
+        video.addEventListener("error", done, { once: true });
+        setTimeout(done, ${Math.max(1000, timeoutMs)});
+      });
+    }));
+  })()`);
+}

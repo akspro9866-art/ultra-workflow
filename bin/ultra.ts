@@ -15,9 +15,37 @@ import { auditDraft } from "../verifier/metrics.js";
 import { buildVisualPairs } from "../verifier/visual-diff.js";
 import { createRubric } from "../verifier/rubric.js";
 import { applyPatch } from "../verifier/patcher.js";
+import { runStyleVerify } from "../verifier/style-verify.js";
+import { styleProbe } from "../core/style-probe.js";
+import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
+import { rawProbe } from "../core/raw-probe.js";
 import { shutdownBrowser } from "../core/browser.js";
 
 class CliError extends Error {}
+
+function quantitativeFrom(metrics: Awaited<ReturnType<typeof auditDraft>>) {
+  return {
+    durationDeltaSec: metrics.durationDeltaSec,
+    durationOk: metrics.durationOk,
+    fpsExpected: metrics.fpsExpected,
+    fpsActual: metrics.fpsActual,
+    fpsOk: metrics.fpsOk,
+    cfr: metrics.cfr,
+    cfrOk: metrics.cfrOk,
+    duplicateRatio: metrics.duplicateRatio,
+    staticHoldFrames: metrics.staticHoldFrames,
+    staticHoldRatio: metrics.staticHoldRatio,
+    stutterEvents: metrics.stutterEvents,
+    stutterFrames: metrics.stutterFrames,
+    jitterRatio: metrics.jitterRatio,
+    maxStaticHoldSec: metrics.maxStaticHoldSec,
+    jitterOk: metrics.jitterOk,
+    blackDetections: metrics.blackDetections,
+    blackOk: metrics.blackOk,
+    loudness: metrics.loudness,
+    pass: metrics.pass,
+  };
+}
 
 const program = new Command();
 program
@@ -193,16 +221,80 @@ program
   });
 
 program
-  .command("verify <reference>")
-  .description("Rule 5: quantitative audit + DOM lint + labeled side-by-side pairs → build/verify-report.json")
+  .command("verify [reference]")
+  .description("Rule 5: 2A `verify <ref.mp4>` (1:1 clone) · 2B `verify --style <slug>` (edit in style)")
   .option("--draft <path>", "draft video to audit", "build/draft.mp4")
-  .action(async (reference: string, options: { draft: string }) => {
+  .option("--style <slug>", "Process 2B: verify against an installed Style Pack")
+  .action(async (reference: string | undefined, options: { draft: string; style?: string }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
-    const ref = path.resolve(reference);
-    if (!(await pathExists(ref))) throw new CliError(`Reference video not found: ${ref}`);
     const draft = path.resolve(options.draft);
     if (!(await pathExists(draft))) throw new CliError(`Draft not found: ${draft}. Run \`ultra build\` first.`);
+    const reportFile = path.join(buildDir, "verify-report.json");
+
+    if (options.style) {
+      const result = await runStyleVerify({
+        project,
+        slug: options.style,
+        draftFile: draft,
+        workspace,
+        buildDir,
+      });
+      const metrics = result.metrics;
+      const lint = result.lint;
+      const compliance = result.compliance;
+      const report: VerifyReportT = {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        reference: `style:${options.style}`,
+        draft,
+        projectDurationSec: project.meta.durationSec,
+        quantitative: quantitativeFrom(metrics),
+        lint: {
+          scenes: lint.scenes,
+          defectCount: lint.defectCount,
+          criticalDefectCount: lint.criticalDefectCount,
+          pass: lint.pass,
+        },
+        visualPairs: [],
+        sceneSimilarity: [],
+        rubric: createRubric(),
+        style: { slug: options.style, compliance, matchSheet: result.matchSheet },
+        pass: result.pass,
+      };
+      VerifyReport.parse(report);
+      await writeJsonAtomic(reportFile, report);
+
+      console.log(`verify (style ${options.style}) → ${reportFile}`);
+      console.log(
+        `  duration  Δ${metrics.durationDeltaSec >= 0 ? "+" : ""}${metrics.durationDeltaSec}s ${metrics.durationOk ? "OK" : "FAIL"} · fps ${metrics.fpsActual ?? "?"} ${metrics.fpsOk ? "OK" : "FAIL"} · cfr ${metrics.cfr ? "OK" : "FAIL"}`,
+      );
+      console.log(
+        `  motion    stutterEvents ${metrics.stutterEvents} (${metrics.jitterOk ? "OK" : "FAIL"}) · longest static hold ${metrics.maxStaticHoldSec}s · black frames ${metrics.blackDetections.length} ${metrics.blackOk ? "OK" : "FAIL"}`,
+      );
+      console.log(
+        `  audio     ${metrics.loudness ? `${metrics.loudness.inputI ?? "?"} LUFS (style target ${result.style.soundDesign.targetLufs} ±1.5)` : "no audio stream"}`,
+      );
+      console.log(`  lint      ${lint.defectCount} defects (${lint.criticalDefectCount} critical) ${lint.pass ? "OK" : "FAIL"}`);
+      console.log(
+        `  style     asl ${compliance.aslOk ? "OK" : "FAIL"} · holds ${compliance.staticHoldOk ? "OK" : "FAIL"} · transitions ${compliance.transitionsOk ? "OK" : "FAIL"} · palette ${compliance.paletteOk ? "OK" : "FAIL"} (Δ${compliance.paletteDistanceAvg}) · loudness ${compliance.loudnessOk ? "OK" : "FAIL"}`,
+      );
+      for (const detail of compliance.details.slice(0, 12)) console.log(`    - ${detail}`);
+      console.log(`  match     ${result.matchSheet ?? "not generated"} (STYLE EXEMPLAR vs YOUR EDIT)`);
+      if (!report.pass) {
+        console.log(`  RESULT    FAIL — patch weak scenes, then rerun \`ultra build && ultra verify --style ${options.style}\``);
+        process.exitCode = 1;
+      } else {
+        console.log(`  RESULT    PASS — run \`ultra render\` for the final broadcast MP4`);
+      }
+      return;
+    }
+
+    if (!reference) {
+      throw new CliError("A reference video is required for 1:1 clone verification (or pass --style <slug>).");
+    }
+    const ref = path.resolve(reference);
+    if (!(await pathExists(ref))) throw new CliError(`Reference video not found: ${ref}`);
 
     const metrics = await auditDraft({
       draftFile: draft,
@@ -233,26 +325,7 @@ program
       reference: ref,
       draft,
       projectDurationSec: project.meta.durationSec,
-      quantitative: {
-        durationDeltaSec: metrics.durationDeltaSec,
-        durationOk: metrics.durationOk,
-        fpsExpected: metrics.fpsExpected,
-        fpsActual: metrics.fpsActual,
-        fpsOk: metrics.fpsOk,
-        cfr: metrics.cfr,
-        cfrOk: metrics.cfrOk,
-        duplicateRatio: metrics.duplicateRatio,
-        staticHoldFrames: metrics.staticHoldFrames,
-        staticHoldRatio: metrics.staticHoldRatio,
-        stutterEvents: metrics.stutterEvents,
-        stutterFrames: metrics.stutterFrames,
-        jitterRatio: metrics.jitterRatio,
-        jitterOk: metrics.jitterOk,
-        blackDetections: metrics.blackDetections,
-        blackOk: metrics.blackOk,
-        loudness: metrics.loudness,
-        pass: metrics.pass,
-      },
+      quantitative: quantitativeFrom(metrics),
       lint: {
         scenes: lint.scenes,
         defectCount: lint.defectCount,
@@ -271,7 +344,6 @@ program
       pass: metrics.pass && lint.pass,
     };
     VerifyReport.parse(report);
-    const reportFile = path.join(buildDir, "verify-report.json");
     await writeJsonAtomic(reportFile, report);
 
     console.log(`verify → ${reportFile}`);
@@ -297,6 +369,127 @@ program
     } else {
       console.log(`  RESULT    PASS — run \`ultra render\` for the final broadcast MP4`);
     }
+  });
+
+program
+  .command("style-probe <videos...>")
+  .description("Process 1 · Rule 1: batch-probe 1–10 reference videos into workspace/style-probe")
+  .option("--out <dir>", "output directory", "workspace/style-probe")
+  .option("--hook-window <sec>", "hook window seconds", "5")
+  .action(async (videos: string[], options: { out: string; hookWindow: string }) => {
+    const result = await styleProbe(videos, path.resolve(options.out), Number(options.hookWindow));
+    const aggregate = result.aggregate;
+    console.log(`style-probe → ${path.join(result.outputDir, "aggregate.json")}`);
+    console.log(`  references ${aggregate.videos.length} · candidates ${aggregate.candidates.length} · overview ${path.join(result.outputDir, aggregate.overviewPng)}`);
+    console.log(
+      `  hook ASL  min ${aggregate.sections.hook.min ?? "—"} / med ${aggregate.sections.hook.median ?? "—"} / max ${aggregate.sections.hook.max ?? "—"}`,
+    );
+    console.log(
+      `  body ASL  min ${aggregate.sections.body.min ?? "—"} / med ${aggregate.sections.body.median ?? "—"} / max ${aggregate.sections.body.max ?? "—"}`,
+    );
+    console.log(
+      `  pacing    max hold ${aggregate.pacing.maxStaticHoldSec}s · beat-snap ${aggregate.pacing.beatSnapRatio} · silence trim ${aggregate.pacing.silenceTrimMsSuggested}ms`,
+    );
+    console.log(
+      `  colour    palette ${aggregate.palette.map((c) => c.hex).slice(0, 5).join(" ")} · lum ${aggregate.avgLuminance} · contrast ${aggregate.avgContrast} · sat ${aggregate.avgSaturation}`,
+    );
+  });
+
+program
+  .command("style-list")
+  .description("List installed Style Packs in styles/")
+  .option("--json", "machine-readable JSON")
+  .action(async (options: { json?: boolean }) => {
+    const entries = await styleList();
+    if (options.json) {
+      console.log(JSON.stringify(entries, null, 2));
+      return;
+    }
+    if (entries.length === 0) {
+      console.log("No Style Packs installed. Run `ultra style-import <zipOrDir>` first.");
+      return;
+    }
+    for (const entry of entries) {
+      console.log(
+        `${entry.slug}  ${entry.name}  v${entry.version}  refs ${entry.referenceCount}  motifs ${entry.motifs}  exemplars ${entry.exemplars}`,
+      );
+    }
+  });
+
+program
+  .command("style-validate <styleDir>")
+  .description("Strictly validate a Style Pack (style.json, STYLE.md, exemplars, motifs, LUT, secrets)")
+  .option("--json", "machine-readable JSON")
+  .action(async (styleDir: string, options: { json?: boolean }) => {
+    const result = await validateStylePack(styleDir);
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          { ok: result.ok, errors: result.errors, counts: result.counts, dir: result.dir, slug: result.style?.meta.slug ?? null },
+          null,
+          2,
+        ),
+      );
+    } else if (result.ok) {
+      console.log(
+        `style-validate OK · ${result.style?.meta.slug} · motifs ${result.counts.motifs} · exemplars ${result.counts.exemplars}${result.counts.hasLut ? " · lut" : ""}`,
+      );
+    } else {
+      for (const error of result.errors) console.log(`  - ${error}`);
+      console.log(`style-validate FAILED (${result.errors.length} issue${result.errors.length === 1 ? "" : "s"})`);
+    }
+    if (!result.ok) process.exitCode = 1;
+  });
+
+program
+  .command("style-export <styleDir>")
+  .description("Package a validated Style Pack into <slug>-style-pack.zip")
+  .option("--out <path>", "zip output path")
+  .action(async (styleDir: string, options: { out?: string }) => {
+    const result = await styleExport(styleDir, options.out ? path.resolve(options.out) : undefined);
+    console.log(`style-export → ${result.zipPath}`);
+    console.log(`  slug ${result.slug} · ${result.files} files · ${(result.bytes / 1024).toFixed(1)} KiB`);
+    console.log(`  deliver this zip to the user; they import it in Qoder with prompts/QODER_IMPORT_STYLE_TO_REPO.txt`);
+  });
+
+program
+  .command("style-import <zipOrDir>")
+  .description("Validate a Style Pack zip/folder, install to styles/<slug>/, update registry")
+  .option("--repack", "run `npm run pack:cloud` so dist/ bundles the new style (dev repo mode)")
+  .action(async (zipOrDir: string, options: { repack?: boolean }) => {
+    const result = await styleImport(zipOrDir, Boolean(options.repack));
+    console.log(`style-import OK → ${result.installedDir}`);
+    console.log(`  files ${result.files} · registry ${result.registryFile}`);
+    if (result.repackRequested) {
+      console.log(
+        result.repacked
+          ? `  repacked dist/ultra-workflow-cloud.zip (npm run pack:cloud)`
+          : `  warning: repack did not complete (${result.repackExit ?? "not a dev repo"})`,
+      );
+    } else {
+      console.log(`  next: run \`npm run pack:cloud\` in the repo to bundle the style into dist/ultra-workflow-cloud.zip`);
+    }
+  });
+
+program
+  .command("raw-probe <video>")
+  .description("Process 2B · Rule 1: probe MY footage and emit workspace/raw-probe/raw-edit-plan.json")
+  .requiredOption("--style <slug>", "installed Style Pack slug")
+  .option("--out <dir>", "output directory", "workspace/raw-probe")
+  .action(async (video: string, options: { style: string; out: string }) => {
+    const result = await rawProbe(video, options.style, options.out);
+    console.log(`raw-probe → ${path.join(result.outputDir, "raw-edit-plan.json")}`);
+    console.log(`  source ${result.plan.durationSec}s @ ${result.plan.fps}fps · style ${options.style}`);
+    console.log(
+      `  silence   ${result.plan.silences.length} interval(s) · removed ${result.plan.removedDurationSec}s after ${result.plan.silenceTrimMs}ms trim`,
+    );
+    console.log(`  keeps     ${result.plan.keepSegments.length} segment(s)`);
+    for (const segment of result.plan.keepSegments.slice(0, 8)) {
+      console.log(`    - ${segment.startSec}s → ${segment.endSec}s (${segment.durationSec}s)`);
+    }
+    console.log(
+      `  pacing    hook ends ${result.plan.pacing.hookEndSec}s · body ASL ${result.plan.pacing.targetBodyAslSec}s · max hold ${result.plan.pacing.maxStaticHoldSec}s · punch-ins ${result.plan.pacing.punchInPoints.length} · B-roll ${result.plan.pacing.brollCutaways.length}`,
+    );
   });
 
 program
