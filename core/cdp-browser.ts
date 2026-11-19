@@ -71,15 +71,17 @@ function findFirstUnder(base: string, predicate: (rel: string) => boolean, maxDe
   return null;
 }
 
+// Prefer full Google Chrome on Linux: distro Chromium builds often omit the
+// proprietary H.264/AAC decoders that sourceClip editing depends on.
 const LINUX_KNOWN = [
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
   "/usr/bin/google-chrome",
   "/usr/bin/google-chrome-stable",
+  "/opt/google/chrome/chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
   "/snap/bin/chromium",
   "/usr/bin/microsoft-edge",
   "/usr/bin/microsoft-edge-stable",
-  "/opt/google/chrome/chrome",
 ];
 
 const WINDOWS_KNOWN = () => {
@@ -161,7 +163,7 @@ export function discoverBrowser(): DiscoveredBrowser | null {
     for (const p of DARWIN_KNOWN) if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
   } else {
     for (const p of LINUX_KNOWN) if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
-    systemCandidates.push(...pathCandidatesOnPath(["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "microsoft-edge"]));
+    systemCandidates.push(...pathCandidatesOnPath(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"]));
   }
   if (systemCandidates.length > 0) {
     discoveryCache = systemCandidates[0] as DiscoveredBrowser;

@@ -45,6 +45,12 @@ jobs:
           which ffmpeg ffprobe
           (google-chrome --version || chromium --version || chromium-browser --version || true)
 
+      - name: Select full Chrome for H.264 sourceClip rendering
+        run: |
+          CHROME_BIN=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+          echo "ULTRA_BROWSER_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
+          "$CHROME_BIN" --version
+
       - name: Install root dependencies
         run: npm ci
 

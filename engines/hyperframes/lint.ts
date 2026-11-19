@@ -5,8 +5,10 @@ import type { LintDefectT } from "../../core/schema.js";
 import type { LintContext, LintResult } from "../types.js";
 import { compileSceneHtml, paletteFor } from "./compiler.js";
 import { newPage, closePage, settlePage, waitForVideos } from "../../core/browser.js";
-import { ensureDir } from "../../core/util.js";
+import { ensureDir, pathExists } from "../../core/util.js";
 import { resolveAspectProfile } from "../../core/safe-zones.js";
+import { resolveAssetPath, resolveSourceClipPath } from "../../core/assets.js";
+import { ffprobeJson } from "../../core/ffmpeg.js";
 
 const CRITICAL = new Set(["clip", "brokenMedia", "blankFrame", "palette"]);
 const AUDIT_FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
@@ -181,8 +183,18 @@ window.__ULTRA_AUDIT = function (params) {
       problems.push({ category: "brokenMedia", detail: "image failed to load: " + (img.currentSrc || img.src || "?").slice(-80) });
     }
   });
+  // File decodability is verified host-side with FFprobe. In the DOM only
+  // genuine element errors are failures — Linux headless Chrome may leave a
+  // perfectly valid file:// video at readyState 1 without ever erroring.
   Array.prototype.slice.call(document.querySelectorAll("video")).forEach(function (video) {
-    if (video.readyState < 2) problems.push({ category: "brokenMedia", detail: "video layer has no decodable frames" });
+    if (video.error) {
+      problems.push({
+        category: "brokenMedia",
+        detail: "video element error " + (video.error.code || "?") + ": " + (video.error.message || "decode failed"),
+      });
+    } else if (video.networkState === 3) {
+      problems.push({ category: "brokenMedia", detail: "video has no supported source (networkState NO_SOURCE)" });
+    }
   });
 
   let contentCount = 0;
@@ -232,6 +244,38 @@ export async function lintScene(ctx: LintContext): Promise<LintResult> {
 
   const defects: LintDefectT[] = [];
   const seen = new Set<string>();
+
+  // Host-side media validation: FFprobe is the deterministic source of truth
+  // for whether a sourceClip / video asset actually decodes on every platform.
+  const videoChecks: { id: string; file: string }[] = [];
+  if (scene.sourceClip) {
+    const resolved = await resolveSourceClipPath(workspace, scene.sourceClip.path).catch(() => null);
+    if (resolved) videoChecks.push({ id: "sourceClip", file: resolved });
+    else defects.push({ category: "brokenMedia", sceneId: scene.id, frameIndex: 0, critical: true, detail: "sourceClip file missing" });
+  }
+  for (const layer of scene.layers) {
+    if (layer.type !== "video" || !layer.assetId) continue;
+    const asset = project.assets.find((entry) => entry.id === layer.assetId);
+    if (!asset) continue;
+    const file = resolveAssetPath(workspace, asset);
+    if (await pathExists(file)) videoChecks.push({ id: layer.id, file });
+  }
+  for (const check of videoChecks) {
+    try {
+      const probe = await ffprobeJson(check.file);
+      const videoStream = probe.streams.find((stream: { codec_type?: string }) => stream.codec_type === "video");
+      if (!videoStream) throw new Error("no video stream");
+    } catch (err) {
+      defects.push({
+        category: "brokenMedia",
+        sceneId: scene.id,
+        frameIndex: 0,
+        critical: true,
+        detail: `${check.id} is not decodable: ${(err as Error).message.split("\n")[0]}`,
+      });
+    }
+  }
+
   const page = await newPage(width, height);
   try {
     await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
