@@ -11,3 +11,6 @@ workspace/probe.json
 workspace/assets-todo.json
 workspace/assets.manifest.json
 workspace/audio-envelope.json
+
+__pycache__/
+*.pyc
