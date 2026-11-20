@@ -225,6 +225,13 @@ Frame-stepped (zero rAF drift), SHA-1 cached; fallbacks recorded in
 
 ## 4 · VERIFY (Rule 5 — 2A reference clone)
 
+Fast iteration before a full build:
+
+```bash
+$ULTRA preview --frame <N>                 # one side-by-side frame + diff (no full build)
+$ULTRA preview --from <F> --to <T>         # just that frame range → build/preview/range.mp4
+```
+
 ```bash
 $ULTRA verify <reference.mp4>
 ```
@@ -244,12 +251,18 @@ Motion-Transitions / Zero Slop-Jitter, 20 each). Any critical defect or score
 
 `workspace/patch.json` → `{ "patches": [{ "sceneId", "reason", "changes": {…} }] }`
 
+Documented loop — scene-only first, full build only when the scene passes:
+
 ```bash
 $ULTRA patch workspace/patch.json
-$ULTRA build && $ULTRA verify <reference.mp4>
+$ULTRA build --scene <id>                          # renders ONLY that scene + 1s handles
+$ULTRA verify --scene <id> <reference.mp4>         # metrics + pairs + lint for that scene
+$ULTRA build && $ULTRA verify <reference.mp4>      # full-project confirmation
 ```
-Repeat until pass and score ≥ 90. If 3 rounds are insufficient, report exactly
-what still fails — never hide defects.
+
+Every build (full, `--scene`, `preview --from/--to`) refreshes
+`build/contact-sheet.png`. Repeat until pass and score ≥ 90. If 3 rounds are
+insufficient, report exactly what still fails — never hide defects.
 
 ## 6 · FINAL RENDER (Rule 6)
 

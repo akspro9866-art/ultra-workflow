@@ -85,7 +85,7 @@ export function sceneIdAt(project: UltraProjectT, t: number): string {
   return main[main.length - 1]?.id ?? "unknown";
 }
 
-function pairHtml(left: string, right: string, label: string, sub: string): string {
+export function pairHtml(left: string, right: string, label: string, sub: string): string {
   return `<!doctype html>
 <html><head><meta charset="utf-8"/><style>
   html,body{margin:0;padding:0;background:#0b0d10;color:#e8eaed;font-family:"Segoe UI","Inter",Arial,sans-serif;width:1720px;height:660px;overflow:hidden}
@@ -175,6 +175,62 @@ export async function buildVisualPairs(opts: {
       await composePairFfmpeg(refFrame, draftFrame, out, t, sceneId);
     }
     pairs.push({ index: i + 1, path: out, timestampSec: t, sceneId, ssim });
+  }
+  await rmrf(scratch);
+  return pairs;
+}
+
+/**
+ * [21] verify --scene: scene-local pair audit. Draft times are local to the
+ * rendered scene clip; reference times are shifted by scene.startSec.
+ */
+export async function buildScenePairs(opts: {
+  reference: string;
+  draft: string;
+  project: UltraProjectT;
+  scene: { id: string; startSec: number; endSec: number };
+  outDir: string;
+  maxPairs?: number;
+}): Promise<VisualPair[]> {
+  const fps = opts.project.meta.fps;
+  const duration = opts.scene.endSec - opts.scene.startSec;
+  const draftMeasured = (await measureStreamDurations(opts.draft).catch(() => null))?.videoSec ?? duration;
+  const refMeasured = (await measureStreamDurations(opts.reference).catch(() => null))?.videoSec ?? duration;
+  const maxLocal = Math.max(0, Math.min(draftMeasured, duration) - 2 / Math.max(1, fps));
+  const samples = [0, duration * 0.25, duration * 0.5, duration * 0.75, maxLocal]
+    .map((t) => Math.min(Math.max(0, round(t, 3)), Math.max(0, round(maxLocal, 3))))
+    .filter((t, i, arr) => i === 0 || t - (arr[i - 1] as number) > 0.02)
+    .slice(0, opts.maxPairs ?? 6);
+  const refMax = Math.max(0, refMeasured - opts.scene.startSec - 2 / Math.max(1, fps));
+
+  await rmrf(opts.outDir);
+  await ensureDir(opts.outDir);
+  const scratch = path.join(opts.outDir, "scratch");
+  await ensureDir(scratch);
+  const browserAvailable = process.env.ULTRA_NO_BROWSER !== "1" && (await getBrowserInfo().catch(() => ({ available: false }))).available;
+  const pairs: VisualPair[] = [];
+  for (let i = 0; i < samples.length; i += 1) {
+    const local = Math.min(samples[i] as number, refMax);
+    const global = round(opts.scene.startSec + local, 3);
+    const refFrame = path.join(scratch, `ref_${i + 1}.png`);
+    const draftFrame = path.join(scratch, `draft_${i + 1}.png`);
+    await extractFrameAt(opts.reference, global, refFrame, 960);
+    await extractFrameAt(opts.draft, local, draftFrame, 960);
+    const ssim = await ssimBetween(refFrame, draftFrame);
+    const out = path.join(opts.outDir, `pair_${String(i + 1).padStart(2, "0")}.png`);
+    if (browserAvailable) {
+      const [refBuf, draftBuf] = await Promise.all([fs.readFile(refFrame), fs.readFile(draftFrame)]);
+      const html = pairHtml(
+        `data:image/png;base64,${refBuf.toString("base64")}`,
+        `data:image/png;base64,${draftBuf.toString("base64")}`,
+        formatTimestamp(global),
+        `${opts.scene.id} · scene-local ${local.toFixed(2)}s`,
+      );
+      await renderHtmlToPng(html, 1720, 660, out);
+    } else {
+      await composePairFfmpeg(refFrame, draftFrame, out, global, opts.scene.id);
+    }
+    pairs.push({ index: i + 1, path: out, timestampSec: global, sceneId: opts.scene.id, ssim });
   }
   await rmrf(scratch);
   return pairs;

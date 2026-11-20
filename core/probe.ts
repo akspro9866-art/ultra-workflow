@@ -1,9 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ffmpegOk, ffprobeJson, parseRational, runBinary } from "./ffmpeg.js";
+import { ffmpeg, ffmpegOk, ffprobeJson, parseRational, runBinary } from "./ffmpeg.js";
 import { renderHtmlToPng } from "./browser.js";
 import { AudioEnvelope, ProbeResult, type ProbeResultT } from "./schema.js";
 import { ensureDir, formatTimestamp, pathExists, round, writeJsonAtomic } from "./util.js";
+import { probeGeometry } from "./geometry.js";
+import { contactSheetHtml } from "./contact-sheet.js";
 
 interface AstatsSample {
   atSec: number;
@@ -23,6 +25,14 @@ export interface ScenePaletteInfo {
   colors: { hex: string; share: number }[];
   avgLuminance: number;
   contrast: number;
+  motionScore: number;
+}
+
+export interface ProbeOptions {
+  /** Optional display cap for palette segments (default: all). Truncation is warned. */
+  maxSegments?: number;
+  /** [6] Also write workspace/geometry.json (lines/rects/text regions). */
+  geometry?: boolean;
 }
 
 function extractPtsTimes(stderr: string): number[] {
@@ -161,9 +171,183 @@ function buildSegments(durationSec: number, cuts: number[]): Segment[] {
   return segments;
 }
 
+/**
+ * [5]/[11] Per-frame YAVG differences via the same tblend pipeline jitter.ts
+ * uses. Drives the second (soft cut) pass and per-scene motion scores.
+ * diffs[k] corresponds to frame k+1 vs frame k.
+ */
+async function measureFrameDiffs(refPath: string): Promise<number[]> {
+  try {
+    const run = await ffmpeg(
+      [
+        "-i",
+        refPath,
+        "-vf",
+        "format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+        "-an",
+        "-f",
+        "null",
+        "-",
+      ],
+      { timeoutMs: 10 * 60_000, maxBuffer: 128 * 1024 * 1024 },
+    );
+    const values: number[] = [];
+    const re = /lavfi\.signalstats\.YAVG=([0-9]+(?:\.[0-9]+)?)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(run.stderr)) !== null) {
+      const v = Number(match[1]);
+      if (Number.isFinite(v)) values.push(v);
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+/** Adaptive-threshold local maxima that are NOT near a hard cut. */
+function detectSoftCuts(diffs: number[], fps: number, hardCuts: number[]): { atSec: number; frame: number }[] {
+  if (diffs.length < 8) return [];
+  const sorted = [...diffs].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] as number;
+  const deviation = [...diffs].map((d) => Math.abs(d - median)).sort((a, b) => a - b);
+  const mad = deviation[Math.floor(deviation.length / 2)] as number;
+  const threshold = Math.max(1.0, median + Math.max(4 * mad, 0.8));
+  const minGapFrames = Math.max(2, Math.round(fps * 0.5));
+  const nearHardCut = Math.max(2, Math.round(fps * 0.4));
+  const events: { atSec: number; frame: number }[] = [];
+  let lastIndex = -Infinity;
+  for (let i = 2; i < diffs.length - 2; i += 1) {
+    const value = diffs[i] as number;
+    if (value < threshold) continue;
+    if (value < (diffs[i - 1] as number) || value < (diffs[i + 1] as number)) continue;
+    if (i - lastIndex < minGapFrames) continue;
+    const atSec = (i + 1) / fps;
+    if (atSec < 0.3) continue;
+    if (hardCuts.some((cut) => Math.abs(cut - atSec) * fps <= nearHardCut)) continue;
+    events.push({ atSec: round(atSec, 3), frame: i + 1 });
+    lastIndex = i;
+  }
+  return events.slice(0, 64);
+}
+
+function meanMotionScore(diffs: number[], startSec: number, endSec: number, fps: number): number {
+  const from = Math.max(0, Math.round(startSec * fps));
+  const to = Math.min(diffs.length, Math.round(endSec * fps));
+  if (to - from < 2) return 0;
+  // Trim the first/last frame (cut spikes) before averaging.
+  const slice = diffs.slice(from + 1, Math.max(from + 2, to - 1));
+  return round(slice.reduce((a, b) => a + b, 0) / slice.length, 4);
+}
+
 function channelLuminance(v: number): number {
   const c = v / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+/** Mean Sobel edge magnitude of one mid-video frame, normalized 0..1 (sharpness proxy). */
+async function measureSharpness(refPath: string, atSec: number): Promise<number> {
+  try {
+    const result = await ffmpegOk(
+      [
+        "-ss",
+        atSec.toFixed(3),
+        "-i",
+        refPath,
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=480:-2:flags=area,edgedetect=low=0.06:high=0.18,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+        "-an",
+        "-f",
+        "null",
+        "-",
+      ],
+      { timeoutMs: 60_000 },
+    );
+    const values = [...result.stderr.matchAll(/lavfi\.signalstats\.YAVG=([0-9]+(?:\.[0-9]+)?)/g)].map((m) => Number(m[1]));
+    const mean = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    return round(mean / 255, 5);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * [8] Honest quality floor. A 736x414 @ 0.38 Mbps reference has already
+ * destroyed small text, HUD labels, feather edges and texture — exact cloning
+ * of fine detail is impossible regardless of how well the layout matches.
+ */
+async function computeCloneFeasibility(
+  refPath: string,
+  videoStream: any,
+  meta: any,
+  width: number,
+  height: number,
+  fps: number,
+  durationSec: number,
+): Promise<{
+  score: number;
+  bitratePerPixel: number;
+  textLegibility: "ok" | "poor" | "destroyed";
+  sharpnessEstimate: number;
+  warnings: string[];
+}> {
+  const streamBitrate = Number(videoStream?.bit_rate);
+  const formatBitrate = Number(meta?.format?.bit_rate);
+  const sizeBitrate = Number(meta?.format?.size) > 0 && durationSec > 0 ? (Number(meta.format.size) * 8) / durationSec : 0;
+  const bitrate = streamBitrate > 0 ? streamBitrate : formatBitrate > 0 ? formatBitrate : sizeBitrate;
+  const bitratePerPixel = round(bitrate > 0 ? bitrate / (width * height * fps) : 0, 5);
+  const sharpnessEstimate = round(await measureSharpness(refPath, durationSec / 2), 5);
+  const bppScore = Math.min(1, bitratePerPixel / 0.18) * 65;
+  const sharpScore = Math.min(1, sharpnessEstimate / 0.15) * 35;
+  const score = round(Math.min(100, bppScore + sharpScore), 1);
+  const textLegibility = bitratePerPixel < 0.06 ? "destroyed" : bitratePerPixel < 0.11 ? "poor" : "ok";
+  const warnings: string[] = [];
+  if (bitratePerPixel > 0 && bitratePerPixel < 0.1) {
+    warnings.push(
+      `low bitrate ${bitratePerPixel.toFixed(3)} bits/pixel/frame (< 0.1) — fine text, HUD labels and feather edges are already destroyed`,
+    );
+  }
+  if (width * height < 800 * 450) {
+    warnings.push(`low resolution ${width}x${height} (< 800x450) — fine detail cannot be re-measured reliably`);
+  }
+  if (sharpnessEstimate < 0.04) {
+    warnings.push(`soft reference (edge score ${sharpnessEstimate}) — text legibility and texture are approximations`);
+  }
+  if (score < 55) {
+    warnings.push("This reference cannot support exact cloning of fine detail — expect a native approximation, not a copy.");
+  }
+  return { score, bitratePerPixel, textLegibility, sharpnessEstimate, warnings };
+}
+
+/**
+ * [30] containsRealRecording heuristic: mean spectral flatness of the audio.
+ * Recorded/natural material (birdsong, foley, voice) is broadband and
+ * less tonal than synthesized SFX/music beds. Documented limit: a noisy synth
+ * pad can look "real"; this is a warning label, never a gate.
+ */
+async function detectRealRecording(refPath: string): Promise<boolean> {
+  try {
+    const result = await ffmpegOk(
+      [
+        "-i",
+        refPath,
+        "-vn",
+        "-af",
+        "aspectralstats=measure=flatness,ametadata=print:key=lavfi.aspectralstats.1.flatness",
+        "-f",
+        "null",
+        "-",
+      ],
+      { timeoutMs: 120_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+    const values = [...result.stderr.matchAll(/lavfi\.aspectralstats\.1\.flatness=([0-9]+(?:\.[0-9]+)?)/g)].map((m) => Number(m[1]));
+    if (values.length === 0) return false;
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    return round(mean, 4) > 0.18;
+  } catch {
+    return false;
+  }
 }
 
 /** Read low-res RGB frames for a segment (rawvideo) and compute dominant palette + luminance stats. */
@@ -239,6 +423,7 @@ async function analyzeSegmentPalette(refPath: string, segment: Segment): Promise
     colors,
     avgLuminance: round(avgLuminance, 4),
     contrast: round(contrast, 4),
+    motionScore: 0,
   };
 }
 
@@ -304,66 +489,11 @@ async function computeAudioEnvelope(refPath: string, durationSec: number, fps: n
   return { envelope: { fps, durationSec: round(durationSec, 3), frames, beatsSec } };
 }
 
-function contactSheetHtml(
-  frames: {
-    dataUri: string;
-    label: string;
-    index: number;
-    cutIndex: number | null;
-    sceneIndex: number;
-    swatches: string[];
-  }[],
-  sheetIndex: number,
-  title: string,
-): string {
-  const cells = frames
-    .map(
-      (f) => `
-      <div class="cell">
-        <div class="frame-wrap"><img src="${f.dataUri}" alt="frame ${f.index}" /></div>
-        <div class="label">
-          <div class="left"><span class="idx">#${String(f.index).padStart(3, "0")}</span>${
-            f.cutIndex !== null ? `<span class="cut">CUT #${f.cutIndex}</span>` : ""
-          }<span class="scene">S${f.sceneIndex + 1}</span><span class="sw">${f.swatches
-            .map((hex) => `<i style="background:${hex}"></i>`)
-            .join("")}</span></div>
-          <span class="ts">${f.label}</span>
-        </div>
-      </div>`,
-    )
-    .join("\n");
-  return `<!doctype html>
-<html><head><meta charset="utf-8"/>
-<style>
-  html,body { margin:0; padding:0; background:#0b0d10; color:#e8eaed;
-    font-family:"Segoe UI","Inter","Helvetica Neue",Arial,sans-serif; width:1600px; height:1100px; overflow:hidden; }
-  .head { display:flex; justify-content:space-between; align-items:baseline; padding:22px 28px 12px; }
-  .title { font-size:22px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; }
-  .sub { font-size:13px; color:#9aa0a6; letter-spacing:0.08em; }
-  .grid { display:grid; grid-template-columns:repeat(3, 1fr); grid-template-rows:repeat(3, 1fr);
-    gap:14px; padding:0 28px 24px; box-sizing:border-box; height:1010px; }
-  .cell { background:#14171c; border:1px solid #23272e; border-radius:8px; display:flex; flex-direction:column; overflow:hidden; }
-  .frame-wrap { flex:1; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
-  .frame-wrap img { max-width:100%; max-height:100%; object-fit:contain; display:block; }
-  .label { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; font-size:15px; border-top:1px solid #23272e; background:#101318; gap:10px; }
-  .left { display:flex; align-items:center; gap:8px; min-width:0; }
-  .idx { color:#8ab4f8; font-weight:600; }
-  .cut { color:#ffd166; font-size:12px; font-weight:700; letter-spacing:0.06em; border:1px solid #4b3c16; border-radius:4px; padding:1px 5px; }
-  .scene { color:#9aa0a6; font-size:12px; letter-spacing:0.06em; }
-  .sw { display:inline-flex; gap:3px; }
-  .sw i { width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(255,255,255,0.2); }
-  .ts { font-family:"Cascadia Mono","Consolas",monospace; color:#e8eaed; white-space:nowrap; }
-</style></head>
-<body>
-  <div class="head">
-    <div class="title">${title}</div>
-    <div class="sub">CONTACT SHEET ${String(sheetIndex).padStart(2, "0")}</div>
-  </div>
-  <div class="grid">${cells}</div>
-</body></html>`;
-}
-
-export async function probeReference(refPath: string, workspaceDir: string): Promise<ProbeResultT> {
+export async function probeReference(
+  refPath: string,
+  workspaceDir: string,
+  options: ProbeOptions = {},
+): Promise<ProbeResultT> {
   if (!(await pathExists(refPath))) {
     throw new Error(`Reference video not found: ${refPath}`);
   }
@@ -378,6 +508,18 @@ export async function probeReference(refPath: string, workspaceDir: string): Pro
   if (!Number.isFinite(durationSec) || durationSec <= 0) {
     throw new Error(`Could not determine duration for ${refPath}`);
   }
+
+  // [8] quality floor + [30] recording heuristic (measured, never guessed).
+  const cloneFeasibility = await computeCloneFeasibility(
+    refPath,
+    videoStream,
+    meta,
+    Number(videoStream.width),
+    Number(videoStream.height),
+    fpsNumeric,
+    durationSec,
+  ).catch(() => undefined);
+  const containsRealRecording = audioStream ? await detectRealRecording(refPath) : false;
 
   // Scene cuts via ffmpeg scene detection.
   let cutsSec: number[] = [];
@@ -414,11 +556,30 @@ export async function probeReference(refPath: string, workspaceDir: string): Pro
     }
   }
 
-  // Per-scene dominant palettes + luminance/contrast estimates.
-  const segments = buildSegments(durationSec, cutsSec).slice(0, 24);
+  // [5] Second pass: per-frame diffs → soft/graphic reconfigurations (no hard cut).
+  const frameDiffs = await measureFrameDiffs(refPath);
+  const softCuts = detectSoftCuts(frameDiffs, fpsNumeric, cutsSec);
+  const softCutsSec = softCuts.map((event) => event.atSec);
+
+  // Per-scene dominant palettes + luminance/contrast + motion energy estimates.
+  let segments = buildSegments(durationSec, cutsSec);
+  if (options.maxSegments !== undefined && options.maxSegments > 0 && segments.length > options.maxSegments) {
+    console.warn(
+      `probe: ${segments.length} segments found, truncating to --max-segments ${options.maxSegments} (pass a larger value to keep all)`,
+    );
+    segments = segments.slice(0, options.maxSegments);
+  }
   const scenes: ScenePaletteInfo[] = [];
   for (const segment of segments) {
-    scenes.push(await analyzeSegmentPalette(refPath, segment));
+    const palette = await analyzeSegmentPalette(refPath, segment);
+    palette.motionScore = meanMotionScore(frameDiffs, segment.startSec, segment.endSec, fpsNumeric);
+    scenes.push(palette);
+  }
+
+  // [6] Geometry probe (explicit --geometry).
+  if (options.geometry) {
+    const geometry = await probeGeometry(refPath, segments, Number(videoStream.width), Number(videoStream.height));
+    await writeJsonAtomic(path.join(workspaceDir, "geometry.json"), geometry);
   }
 
   // Frame-accurate audio envelope + beats (drives audio-reactive custom scenes).
@@ -442,6 +603,7 @@ export async function probeReference(refPath: string, workspaceDir: string): Pro
   times.add(0);
   for (let t = 1; t < durationSec - 0.05; t += 1) times.add(round(t, 3));
   for (const t of cutsSec) if (t < durationSec - 0.05) times.add(t);
+  for (const t of softCutsSec) if (t < durationSec - 0.05) times.add(t);
   const ordered = dedupeTimes([...times], 0.05).slice(0, 72);
 
   const framesDir = path.join(workspaceDir, "probe-frames");
@@ -513,6 +675,8 @@ export async function probeReference(refPath: string, workspaceDir: string): Pro
         }
       : null,
     cutsSec,
+    softCutsSec,
+    softCutFrames: softCuts.map((event) => ({ atSec: event.atSec, frame: event.frame })),
     onsetsSec,
     frames: frames.map((f) => ({
       path: path.relative(workspaceDir, f.path),
@@ -525,6 +689,8 @@ export async function probeReference(refPath: string, workspaceDir: string): Pro
     contactSheets: contactSheets.map((p) => path.relative(workspaceDir, p)),
     scenes,
     audioEnvelopePath: envelopePath,
+    ...(cloneFeasibility ? { cloneFeasibility } : {}),
+    containsRealRecording,
   };
 
   ProbeResult.parse(result);

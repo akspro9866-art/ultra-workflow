@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ensureDir, pathExists, readJson } from "./util.js";
+import { ensureDir, pathExists, readJson, writeJsonAtomic } from "./util.js";
 import type { AssetTodoT } from "./schema.js";
 
 /**
@@ -476,6 +476,35 @@ function synthMusic(preset: string, duration: number, bpm: number, mood: SynthMo
   return buf;
 }
 
+/**
+ * [30] Provenance index: every synthesizer output is recorded as
+ * origin="synthesised" so validate-assets / asset-plan / delivery manifests can
+ * never present it as an interchangeable recorded sound.
+ */
+function synthOriginIndexPath(): string {
+  return path.join(process.cwd(), ".ultra-cache", "synth-origins.json");
+}
+
+export async function lookupSynthOrigin(file: string): Promise<boolean> {
+  try {
+    const raw = await readJson<Record<string, string>>(synthOriginIndexPath());
+    return raw[path.resolve(file)] === "synthesised";
+  } catch {
+    return false;
+  }
+}
+
+async function recordSynthOrigin(file: string): Promise<void> {
+  let raw: Record<string, string> = {};
+  try {
+    raw = await readJson<Record<string, string>>(synthOriginIndexPath());
+  } catch {
+    raw = {};
+  }
+  raw[path.resolve(file)] = "synthesised";
+  await writeJsonAtomic(synthOriginIndexPath(), raw);
+}
+
 export async function synthesizeToWav(request: SynthRequest): Promise<SynthResult> {
   if (!isSynthPreset(request.preset)) {
     throw new Error(`unknown synth preset "${request.preset}" (sfx: ${SYNTH_PRESETS.sfx.join(", ")}; music: ${SYNTH_PRESETS.music.join(", ")})`);
@@ -489,6 +518,7 @@ export async function synthesizeToWav(request: SynthRequest): Promise<SynthResul
   fadeEdges(buf, isMusic ? 0.02 : Math.min(0.01, duration / 10));
   const levels = finalize(buf, isMusic ? 1.12 : 1.05);
   const bytes = await writeWav(request.out, buf);
+  await recordSynthOrigin(request.out);
   return { preset: request.preset, out: request.out, durationSec: duration, bytes, ...levels };
 }
 

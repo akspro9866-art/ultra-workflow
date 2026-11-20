@@ -5,7 +5,9 @@ import type { AssetSpecT, UltraProjectT } from "./schema.js";
 import { AssetManifest, type AssetTodoT } from "./schema.js";
 import { pathExists, resolveInside, round, sha1File, writeJsonAtomic } from "./util.js";
 import { SceneGraph } from "../engines/blender/schema.js";
-import { inferSynthPreset } from "./synth-audio.js";
+import { inferSynthPreset, lookupSynthOrigin } from "./synth-audio.js";
+import { compareAssetToReference } from "./similarity.js";
+import { resolveSourceVideoPath } from "./project.js";
 
 export type AssetHost = "auto" | "gemini" | "muse" | "chatgpt";
 
@@ -17,6 +19,16 @@ export interface AssetCheckResult {
   sha1: string | null;
   valid: boolean;
   status: string;
+  similarity?: {
+    sceneId: string;
+    startSec: number;
+    endSec: number;
+    ssimToRefSegment: number | null;
+    histogramDistance: number | null;
+    edgeDensityRatio: number | null;
+    warnings: string[];
+  } | null;
+  origin?: "synthesised" | "recorded" | "licensed" | "user-supplied";
 }
 
 export interface AssetValidation {
@@ -24,6 +36,7 @@ export interface AssetValidation {
   todo: AssetTodoT;
   checks: AssetCheckResult[];
   errors: string[];
+  warnings: string[];
 }
 
 export function resolveAssetPath(workspace: string, asset: AssetSpecT): string {
@@ -237,6 +250,28 @@ function instructionFor(asset: AssetSpecT, host: AssetHost = "auto"): string {
   }
 }
 
+interface AssetBinding {
+  sceneId: string;
+  startSec: number;
+  endSec: number;
+}
+
+/** First timeline scene that uses each asset (sorted by startSec). */
+function assetBindings(project: UltraProjectT): Map<string, AssetBinding> {
+  const map = new Map<string, AssetBinding>();
+  for (const scene of [...project.scenes].sort((a, b) => a.startSec - b.startSec)) {
+    for (const layer of scene.layers) {
+      if (layer.assetId && !map.has(layer.assetId)) {
+        map.set(layer.assetId, { sceneId: scene.id, startSec: scene.startSec, endSec: scene.endSec });
+      }
+    }
+  }
+  return map;
+}
+
+const IMAGE_ASSET_TYPES = new Set(["image", "illustration", "png_alpha"]);
+const AUDIO_ASSET_TYPES = new Set(["sfx", "music", "voice"]);
+
 export async function validateAssets(
   project: UltraProjectT,
   workspace: string,
@@ -247,6 +282,67 @@ export async function validateAssets(
   for (const asset of project.assets) {
     checks.push(await checkAsset(workspace, asset));
   }
+  const warnings: string[] = [];
+
+  // [30] Audio provenance: synth-audio outputs are labelled automatically.
+  for (const asset of project.assets) {
+    if (!AUDIO_ASSET_TYPES.has(asset.type)) continue;
+    const check = checks.find((c) => c.id === asset.id);
+    if (!check) continue;
+    const file = resolveAssetPath(workspace, asset);
+    check.origin = asset.origin ?? ((await lookupSynthOrigin(file)) ? "synthesised" : "user-supplied");
+  }
+
+  // [18] Content similarity vs the reference segment the asset replaces.
+  const bindings = assetBindings(project);
+  const threshold = project.assetSimilarity;
+  const reference = await resolveSourceVideoPath(workspace, project.meta.sourceVideoPath);
+  let warnedNoReference = false;
+  for (const asset of project.assets) {
+    if (!IMAGE_ASSET_TYPES.has(asset.type)) continue;
+    const check = checks.find((c) => c.id === asset.id);
+    const binding = bindings.get(asset.id) ?? (asset.refSegment ? { sceneId: "refSegment", startSec: asset.refSegment.startSec, endSec: asset.refSegment.endSec } : null);
+    if (!check || !check.valid || !binding) continue;
+    if (!reference) {
+      check.similarity = {
+        ...binding,
+        sceneId: binding.sceneId,
+        ssimToRefSegment: null,
+        histogramDistance: null,
+        edgeDensityRatio: null,
+        warnings: ["reference video not found — similarity not measured"],
+      };
+      if (!warnedNoReference) {
+        warnings.push(`asset similarity not measured for image assets: reference "${project.meta.sourceVideoPath}" not found`);
+        warnedNoReference = true;
+      }
+      continue;
+    }
+    const atSec = (binding.startSec + binding.endSec) / 2;
+    const scores = await compareAssetToReference(resolveAssetPath(workspace, asset), reference, atSec);
+    const assetWarnings: string[] = [];
+    if (scores.ssimToRefSegment !== null && scores.ssimToRefSegment < threshold.minSsim) {
+      assetWarnings.push(
+        `asset "${asset.id}" SSIM ${scores.ssimToRefSegment} < ${threshold.minSsim} vs scene "${binding.sceneId}" [${binding.startSec.toFixed(2)}s..${binding.endSec.toFixed(2)}s]`,
+      );
+    }
+    if (scores.histogramDistance !== null && scores.histogramDistance > threshold.maxHistogramDistance) {
+      assetWarnings.push(
+        `asset "${asset.id}" colour histogram distance ${scores.histogramDistance} > ${threshold.maxHistogramDistance} vs scene "${binding.sceneId}"`,
+      );
+    }
+    if (
+      scores.edgeDensityRatio !== null &&
+      (scores.edgeDensityRatio < 1 - threshold.edgeRatioTolerance || scores.edgeDensityRatio > 1 + threshold.edgeRatioTolerance)
+    ) {
+      assetWarnings.push(
+        `asset "${asset.id}" edge-density ratio ${scores.edgeDensityRatio} outside ${threshold.edgeRatioTolerance} of the reference segment`,
+      );
+    }
+    check.similarity = { ...binding, ...scores, warnings: assetWarnings };
+    warnings.push(...assetWarnings);
+  }
+
   const manifest = {
     generatedAt: new Date().toISOString(),
     assets: Object.fromEntries(checks.map((c) => [c.id, c])),
@@ -281,6 +377,7 @@ export async function validateAssets(
               durationSec: asset.durationSec ?? undefined,
             }
           : undefined;
+      const binding = bindings.get(asset.id);
       return {
         id: asset.id,
         type: asset.type,
@@ -293,6 +390,7 @@ export async function validateAssets(
         ...(asset.requireAlpha ? { requireAlpha: asset.requireAlpha } : {}),
         targetPath: asset.targetPath,
         instruction: `${instructionFor(asset, host)}${check && check.exists ? ` Current problem: ${check.status}.` : ""}`,
+        ...(binding && IMAGE_ASSET_TYPES.has(asset.type) ? { similarityTarget: binding } : {}),
         ...(strategy ? { chatgptStrategy: strategy } : {}),
         ...(synthPreset ? { synthPreset } : {}),
       };
@@ -308,5 +406,5 @@ export async function validateAssets(
     })
     .filter((v): v is string => v !== null);
 
-  return { ok: errors.length === 0, todo, checks, errors };
+  return { ok: errors.length === 0, todo, checks, errors, warnings };
 }

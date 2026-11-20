@@ -7,11 +7,10 @@ import { checkApprovalGate, loadPlan } from "./preprod.js";
 import { resolveProcessMode } from "./state.js";
 import { resolveAspectProfile } from "./safe-zones.js";
 import { stylesRoot } from "./style-pack.js";
-import { installRoot } from "./env.js";
+import { installRoot, ultraTmpDir } from "./env.js";
 import { ffprobeJson } from "./ffmpeg.js";
 import { extractZip } from "./zip.js";
 import { pathExists, readJson } from "./util.js";
-import os from "node:os";
 import { promises as fsPromises } from "node:fs";
 
 export type GuardStage = "plan" | "build" | "verify" | "delivery";
@@ -197,7 +196,7 @@ export async function runGuard(workspace: string, buildDir: string, stage: Guard
       const stat = await fs.stat(editableZip);
       if (stat.size === 0) errors.push({ check: "editable", detail: "editable-project.zip is empty" });
       else {
-        const tmp = await fsPromises.mkdtemp(path.join(os.tmpdir(), "ultra-guard-zip-"));
+        const tmp = await fsPromises.mkdtemp(path.join(ultraTmpDir(), "ultra-guard-zip-"));
         try {
           const { entries } = await extractZip(editableZip, tmp);
           if (entries.some((entry) => !entry.crcOk)) errors.push({ check: "editable", detail: "editable-project.zip CRC verification failed" });

@@ -12,7 +12,9 @@ import { detectRenderTier, type RenderTier } from "./env.js";
 import { sceneRenderDuration } from "./project.js";
 import { stitchTimeline, type StitchClip, type StitchResult } from "./stitcher.js";
 import { resolveAssetPath } from "./assets.js";
-import { ensureDir, pathExists, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
+import { ensureDir, pathExists, rmrf, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
+import { ffmpegOk } from "./ffmpeg.js";
+import { renderDraftContactSheet } from "./contact-sheet.js";
 
 export const CACHE_VERSION = 5;
 
@@ -183,6 +185,90 @@ export function cacheDir(): string {
   return path.join(process.cwd(), ".ultra-cache", "renders");
 }
 
+/** Render/cache exactly one scene (shared by build, build --scene and preview). */
+export async function renderSceneClip(
+  options: BuildOptions,
+  scene: SceneSpecT,
+  tier: RenderTier,
+  renderWidth: number,
+  renderHeight: number,
+  counters: { hits: number; misses: number },
+): Promise<BuiltScene> {
+  const { project, workspace, buildDir } = options;
+  const cache = cacheDir();
+  await ensureDir(cache);
+  await ensureDir(path.join(buildDir, "scenes"));
+  const durationSec = round(sceneRenderDuration(project, scene), 6);
+  const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
+  const resolvedKey: EngineKey = choice.engine.key as EngineKey;
+  const key = await cacheKeyForScene(project, scene, workspace, resolvedKey, { width: renderWidth, height: renderHeight });
+  const ext = scene.alpha ? ".mov" : ".mp4";
+  const cacheFile = path.join(cache, `${key}${ext}`);
+  const notes: string[] = choice.reason ? [choice.reason] : [];
+  let engineUsed: EngineKey = resolvedKey;
+  let fallback = choice.fallback;
+  const cached = await pathExists(cacheFile);
+  let sceneFile = cacheFile;
+
+  if (cached) {
+    counters.hits += 1;
+  } else {
+    counters.misses += 1;
+    const ctx = {
+      project,
+      scene,
+      workspace,
+      buildDir,
+      outFile: cacheFile,
+      durationSec,
+      fps: project.meta.fps,
+      width: renderWidth,
+      height: renderHeight,
+      alpha: scene.alpha,
+    };
+    try {
+      const outcome = await choice.engine.renderScene(ctx);
+      engineUsed = outcome.engineUsed;
+      notes.push(...outcome.notes);
+    } catch (err) {
+      if (options.strictEngine || resolvedKey === "hyperframes" || resolvedKey === "py-canvas" || resolvedKey === "ffmpeg-only") {
+        throw err;
+      }
+      // Render-time failure: store under the HyperFrames key so a later working
+      // native engine is not masked by a stale fallback entry.
+      const fallbackKey = await cacheKeyForScene(project, scene, workspace, "hyperframes", { width: renderWidth, height: renderHeight });
+      const fallbackFile = path.join(cache, `${fallbackKey}${ext}`);
+      notes.push(`${resolvedKey} render failed (${(err as Error).message.split("\n")[0]}); using HyperFrames fallback`);
+      const outcome = await hyperframesEngine.renderScene({ ...ctx, outFile: fallbackFile });
+      engineUsed = outcome.engineUsed;
+      fallback = true;
+      sceneFile = fallbackFile;
+      notes.push(...outcome.notes);
+    }
+  }
+
+  const sceneCopy = path.join(buildDir, "scenes", `${safeSceneId(scene.id)}${ext}`);
+  await fs.copyFile(sceneFile, sceneCopy);
+
+  return {
+    sceneId: scene.id,
+    file: sceneFile,
+    startSec: scene.startSec,
+    endSec: scene.endSec,
+    durationSec,
+    alpha: scene.alpha,
+    ...(scene.overlayOfSceneId ? { overlayOfSceneId: scene.overlayOfSceneId } : {}),
+    requestedEngine: scene.engine,
+    engineUsed,
+    fallback,
+    ...(choice.tierFallback
+      ? { fallbackReason: choice.tierFallback, browserless: choice.tierFallback === "browserless-py" }
+      : {}),
+    cached,
+    notes,
+  };
+}
+
 export async function buildProject(options: BuildOptions): Promise<BuildManifest> {
   const { project, workspace, buildDir } = options;
   const cache = cacheDir();
@@ -203,78 +289,13 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
   const tier = tierInfo.tier;
   const renderWidth = options.renderWidth ?? project.meta.width;
   const renderHeight = options.renderHeight ?? project.meta.height;
+  const counters = { hits: 0, misses: 0 };
 
   for (const scene of ordered) {
-    const durationSec = round(sceneRenderDuration(project, scene), 6);
-    const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
-    const resolvedKey: EngineKey = choice.fallback ? (choice.engine.key as EngineKey) : (choice.engine.key as EngineKey);
-    const key = await cacheKeyForScene(project, scene, workspace, resolvedKey, { width: renderWidth, height: renderHeight });
-    const ext = scene.alpha ? ".mov" : ".mp4";
-    const cacheFile = path.join(cache, `${key}${ext}`);
-    const notes: string[] = choice.reason ? [choice.reason] : [];
-    let engineUsed: EngineKey = resolvedKey;
-    let fallback = choice.fallback;
-    const cached = await pathExists(cacheFile);
-    let sceneFile = cacheFile;
-
-    if (cached) {
-      hits += 1;
-    } else {
-      misses += 1;
-      const ctx = {
-        project,
-        scene,
-        workspace,
-        buildDir,
-        outFile: cacheFile,
-        durationSec,
-        fps: project.meta.fps,
-        width: renderWidth,
-        height: renderHeight,
-        alpha: scene.alpha,
-      };
-      try {
-        const outcome = await choice.engine.renderScene(ctx);
-        engineUsed = outcome.engineUsed;
-        notes.push(...outcome.notes);
-      } catch (err) {
-        if (options.strictEngine || resolvedKey === "hyperframes" || resolvedKey === "py-canvas" || resolvedKey === "ffmpeg-only") {
-          throw err;
-        }
-        // Render-time failure: store under the HyperFrames key so a later working
-        // native engine is not masked by a stale fallback entry.
-        const fallbackKey = await cacheKeyForScene(project, scene, workspace, "hyperframes", { width: renderWidth, height: renderHeight });
-        const fallbackFile = path.join(cache, `${fallbackKey}${ext}`);
-        notes.push(`${resolvedKey} render failed (${(err as Error).message.split("\n")[0]}); using HyperFrames fallback`);
-        const outcome = await hyperframesEngine.renderScene({ ...ctx, outFile: fallbackFile });
-        engineUsed = outcome.engineUsed;
-        fallback = true;
-        sceneFile = fallbackFile;
-        notes.push(...outcome.notes);
-      }
-    }
-
-    const sceneCopy = path.join(buildDir, "scenes", `${safeSceneId(scene.id)}${ext}`);
-    await fs.copyFile(sceneFile, sceneCopy);
-
-    built.push({
-      sceneId: scene.id,
-      file: sceneFile,
-      startSec: scene.startSec,
-      endSec: scene.endSec,
-      durationSec,
-      alpha: scene.alpha,
-      ...(scene.overlayOfSceneId ? { overlayOfSceneId: scene.overlayOfSceneId } : {}),
-      requestedEngine: scene.engine,
-      engineUsed,
-      fallback,
-      ...(choice.tierFallback
-        ? { fallbackReason: choice.tierFallback, browserless: choice.tierFallback === "browserless-py" }
-        : {}),
-      cached,
-      notes,
-    });
+    built.push(await renderSceneClip(options, scene, tier, renderWidth, renderHeight, counters));
   }
+  hits += counters.hits;
+  misses += counters.misses;
 
   const draftFile = path.join(buildDir, "draft.mp4");
   const stitch = await stitchTimeline({
@@ -304,7 +325,125 @@ export async function buildProject(options: BuildOptions): Promise<BuildManifest
     cache: { hits, misses },
   };
   await writeJsonAtomic(path.join(buildDir, "build-manifest.json"), manifest);
+  // [22] Always-on contact sheet: every build regenerates it from the draft.
+  try {
+    await renderDraftContactSheet({
+      video: draftFile,
+      outFile: path.join(buildDir, "contact-sheet.png"),
+      title: "ULTRA · draft contact sheet",
+      durationSec: project.meta.durationSec,
+    });
+  } catch (err) {
+    console.warn(`build: contact sheet generation failed (${(err as Error).message.split("\n")[0]})`);
+  }
   return manifest;
+}
+
+/* ============================================================================
+ * [21] Single-scene build: render ONE scene (+ cache) and stitch a preview MP4
+ * with 1s handles either side taken from the existing full draft when present.
+ * ========================================================================== */
+
+export interface ScenePreviewResult {
+  sceneId: string;
+  previewFile: string;
+  manifestFile: string;
+  clip: BuiltScene;
+  cache: { hits: number; misses: number };
+}
+
+export async function buildScenePreview(options: BuildOptions & { sceneId: string }): Promise<ScenePreviewResult> {
+  const { project, buildDir } = options;
+  const scene = project.scenes.find((s) => s.id === options.sceneId);
+  if (!scene) throw new Error(`build --scene: unknown scene "${options.sceneId}"`);
+  const tier = (await detectRenderTier()).tier;
+  const renderWidth = options.renderWidth ?? project.meta.width;
+  const renderHeight = options.renderHeight ?? project.meta.height;
+  const counters = { hits: 0, misses: 0 };
+  const clip = await renderSceneClip(options, scene, tier, renderWidth, renderHeight, counters);
+
+  const sceneDur = round(scene.endSec - scene.startSec, 3);
+  const draft = path.join(buildDir, "draft.mp4");
+  const hasDraft = await pathExists(draft);
+  const parts: { file: string; ss: number; duration: number; label: string }[] = [];
+  if (hasDraft && scene.startSec > 0.05) {
+    const start = Math.max(0, scene.startSec - 1);
+    parts.push({ file: draft, ss: start, duration: round(scene.startSec - start, 3), label: "before" });
+  }
+  parts.push({ file: clip.file, ss: 0, duration: sceneDur, label: "scene" });
+  if (hasDraft && scene.endSec < project.meta.durationSec - 0.05) {
+    const duration = round(Math.min(1, project.meta.durationSec - scene.endSec), 3);
+    if (duration > 0.02) parts.push({ file: draft, ss: scene.endSec, duration, label: "after" });
+  }
+
+  const tmp = path.join(buildDir, "tmp", `preview-${safeSceneId(scene.id)}`);
+  await rmrf(tmp);
+  await ensureDir(tmp);
+  const normalized: string[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i] as { file: string; ss: number; duration: number; label: string };
+    const out = path.join(tmp, `part_${i}.mp4`);
+    await ffmpegOk(
+      [
+        "-ss",
+        part.ss.toFixed(3),
+        "-i",
+        part.file,
+        "-t",
+        Math.max(0.02, part.duration).toFixed(3),
+        "-r",
+        String(project.meta.fps),
+        "-fps_mode",
+        "cfr",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "16",
+        "-pix_fmt",
+        "yuv420p",
+        out,
+      ],
+      { timeoutMs: 15 * 60_000 },
+    );
+    normalized.push(out);
+  }
+  const listFile = path.join(tmp, "list.txt");
+  await fs.writeFile(listFile, normalized.map((file) => `file '${file.replace(/'/g, "'\\''")}'`).join("\n"), "utf8");
+  const previewFile = path.join(buildDir, `scene-${safeSceneId(scene.id)}-preview.mp4`);
+  await ffmpegOk(["-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", "-movflags", "+faststart", previewFile], {
+    timeoutMs: 15 * 60_000,
+  });
+  await rmrf(tmp);
+
+  // [19]-style per-scene manifest: proves the other scenes were NOT rendered.
+  const manifestFile = path.join(buildDir, `scene-${safeSceneId(scene.id)}-manifest.json`);
+  const totalDuration = round(parts.reduce((acc, part) => acc + part.duration, 0), 3);
+  await writeJsonAtomic(manifestFile, {
+    builtAt: new Date().toISOString(),
+    sceneId: scene.id,
+    renderedScenes: [scene.id],
+    previewFile,
+    durationSec: totalDuration,
+    handles: parts.filter((p) => p.label !== "scene").map((p) => ({ side: p.label, durationSec: p.duration })),
+    scene: clip,
+    cache: counters,
+  });
+
+  try {
+    await renderDraftContactSheet({
+      video: previewFile,
+      outFile: path.join(buildDir, "contact-sheet.png"),
+      title: `ULTRA · scene ${scene.id}`,
+      durationSec: totalDuration,
+    });
+  } catch (err) {
+    console.warn(`build --scene: contact sheet generation failed (${(err as Error).message.split("\n")[0]})`);
+  }
+
+  return { sceneId: scene.id, previewFile, manifestFile, clip, cache: counters };
 }
 
 export interface LintSceneResult {
@@ -313,7 +452,7 @@ export interface LintSceneResult {
   pass: boolean;
 }
 
-export async function lintProject(options: BuildOptions): Promise<{
+export async function lintProject(options: BuildOptions & { onlySceneIds?: string[] }): Promise<{
   scenes: LintSceneResult[];
   defectCount: number;
   criticalDefectCount: number;
@@ -323,7 +462,11 @@ export async function lintProject(options: BuildOptions): Promise<{
   const results: LintSceneResult[] = [];
   const tierInfo = await detectRenderTier();
   const tier = tierInfo.tier;
-  for (const scene of [...project.scenes].sort((a, b) => a.startSec - b.startSec)) {
+  const only = options.onlySceneIds ? new Set(options.onlySceneIds) : null;
+  const scenes = [...project.scenes]
+    .filter((scene) => !only || only.has(scene.id))
+    .sort((a, b) => a.startSec - b.startSec);
+  for (const scene of scenes) {
     const choice = await routeScene(scene, Boolean(options.strictEngine), tier);
     const lint = await choice.engine.lint({
       project,

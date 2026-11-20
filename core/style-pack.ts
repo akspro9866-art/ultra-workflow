@@ -1,10 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { StylePackSchema, StyleRegistry, type StylePackT } from "./style-schema.js";
 import { createZip, extractZip } from "./zip.js";
-import { installRoot } from "./env.js";
+import { installRoot, ultraTmpDir } from "./env.js";
 import { ensureDir, pathExists, readJson, rmrf, writeJsonAtomic } from "./util.js";
 
 /* ============================================================================
@@ -284,7 +283,7 @@ export async function styleExport(styleDirInput: string, outFileInput?: string):
   const slug = style.meta.slug;
   const outFile = path.resolve(outFileInput ?? path.join("build", `${slug}-style-pack.zip`));
 
-  const staging = await fs.mkdtemp(path.join(os.tmpdir(), `ultra-style-export-${slug}-`));
+  const staging = await fs.mkdtemp(path.join(ultraTmpDir(), `ultra-style-export-${slug}-`));
   const files: { name: string; source: string }[] = [];
   try {
     const copy = async (rel: string) => {
@@ -371,7 +370,7 @@ export async function styleImport(zipOrDir: string, repack: boolean): Promise<St
       if (!found) throw new Error(`no style.json found in ${source}`);
       packRoot = found;
     } else {
-      tempExtract = await fs.mkdtemp(path.join(os.tmpdir(), "ultra-style-import-"));
+      tempExtract = await fs.mkdtemp(path.join(ultraTmpDir(), "ultra-style-import-"));
       const { entries } = await extractZip(source, tempExtract);
       if (!entries.every((e) => e.crcOk)) throw new Error("style pack zip failed CRC verification");
       const found = await findPackRoot(tempExtract);

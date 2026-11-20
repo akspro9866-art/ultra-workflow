@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { ensureDir, pathExists } from "./util.js";
 
@@ -13,6 +13,8 @@ export interface HarnessState {
   approval: { approved: boolean; planHash: string | null; approvedBy: string | null } | null;
   ralph: { attempt: number; bestScore: number | null; satisfied: boolean } | null;
   artifacts: Record<string, { path: string; sha1?: string; bytes?: number }>;
+  /** Working Chromium path persisted by `ultra doctor` (no env var needed afterwards). */
+  browserPath?: string | null;
   updatedAt: string;
 }
 
@@ -26,6 +28,7 @@ export function defaultState(): HarnessState {
     approval: null,
     ralph: null,
     artifacts: {},
+    browserPath: null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -52,6 +55,16 @@ export async function patchState(workspace: string, patch: Partial<HarnessState>
   const next: HarnessState = { ...state, ...patch, version: 6, updatedAt: new Date().toISOString() };
   await writeState(workspace, next);
   return next;
+}
+
+/** Synchronous read used by the CLI bootstrap hook (before any async command work). */
+export function readBrowserPathSync(workspace: string): string | null {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(workspace, "state.json"), "utf8")) as Partial<HarnessState>;
+    return typeof raw.browserPath === "string" && raw.browserPath.trim().length > 0 ? raw.browserPath : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function setProcessMode(workspace: string, mode: ProcessMode): Promise<void> {

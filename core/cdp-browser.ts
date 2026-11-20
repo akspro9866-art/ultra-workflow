@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
 import { tailLines } from "./util.js";
+import { ultraTmpDir } from "./env.js";
 
 /* ============================================================================
  * Browser discovery (Linux / Windows / macOS; system + Playwright/Puppeteer caches)
@@ -121,8 +122,10 @@ function findInPlaywrightCache(): DiscoveredBrowser | null {
   for (const base of playwrightCacheBases()) {
     const hit = findFirstUnder(
       base,
-      (rel) => /(^|\/)(chrome|chrome\.exe)$/.test(rel) && /(chrome-linux|chrome-win|chrome-linux64|chrome-mac)/.test(rel),
-      3,
+      (rel) =>
+        /(^|\/)(chrome|chrome\.exe|headless_shell|headless_shell\.(cmd|bat)|chrome-headless-shell|chrome-headless-shell\.exe)$/.test(rel) &&
+        /(chrome-linux|chrome-win|chrome-linux64|chrome-mac|chrome-headless-shell)/.test(rel),
+      4,
     );
     if (hit) return { kind: "playwright-cache", executablePath: hit };
   }
@@ -134,7 +137,7 @@ function findInPuppeteerCache(): DiscoveredBrowser | null {
     const hit = findFirstUnder(
       base,
       (rel) =>
-        /(^|\/)(chrome|chrome\.exe)$/.test(rel) &&
+        /(^|\/)(chrome|chrome\.exe|headless_shell|chrome-headless-shell)$/.test(rel) &&
         /(chrome-linux64|chrome-win64|chrome-mac|Chrome for Testing)/.test(rel),
       4,
     );
@@ -144,43 +147,90 @@ function findInPuppeteerCache(): DiscoveredBrowser | null {
 }
 
 let discoveryCache: DiscoveredBrowser | null | undefined;
+const discoveryAttempts: string[] = [];
 
-export function discoverBrowser(): DiscoveredBrowser | null {
-  if (discoveryCache !== undefined) return discoveryCache;
-  const override = process.env.ULTRA_BROWSER_PATH;
-  if (override && override.trim() && isRunnableFile(override.trim())) {
-    discoveryCache = { kind: "env-override", executablePath: override.trim() };
-    return discoveryCache;
+function envBrowserOverrides(): DiscoveredBrowser[] {
+  const found: DiscoveredBrowser[] = [];
+  for (const [name, value] of [
+    ["ULTRA_BROWSER_PATH", process.env.ULTRA_BROWSER_PATH],
+    ["HYPERFRAMES_BROWSER_PATH", process.env.HYPERFRAMES_BROWSER_PATH],
+  ] as const) {
+    const candidate = (value ?? "").trim();
+    if (!candidate) continue;
+    discoveryAttempts.push(`${candidate} (${name})`);
+    if (isRunnableFile(candidate)) found.push({ kind: `${name.toLowerCase()}-override`, executablePath: candidate });
   }
+  return found;
+}
 
+/**
+ * Ordered browser candidates: explicit env overrides, system installs, then
+ * Playwright/Puppeteer caches (including headless_shell on agent VMs).
+ */
+export function browserCandidates(): DiscoveredBrowser[] {
+  const overrides = envBrowserOverrides();
+  const out: DiscoveredBrowser[] = [...overrides];
   const systemCandidates: DiscoveredBrowser[] = [];
   if (process.platform === "win32") {
-    for (const p of WINDOWS_KNOWN()) if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
-    systemCandidates.push(
-      ...pathCandidatesOnPath(["chrome", "msedge", "chromium"]),
-    );
+    for (const p of WINDOWS_KNOWN()) {
+      discoveryAttempts.push(p);
+      if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
+    }
+    for (const candidate of pathCandidatesOnPath(["chrome", "msedge", "chromium"])) {
+      discoveryAttempts.push(candidate.executablePath);
+      systemCandidates.push(candidate);
+    }
   } else if (process.platform === "darwin") {
-    for (const p of DARWIN_KNOWN) if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
+    for (const p of DARWIN_KNOWN) {
+      discoveryAttempts.push(p);
+      if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
+    }
   } else {
-    for (const p of LINUX_KNOWN) if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
-    systemCandidates.push(...pathCandidatesOnPath(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"]));
+    for (const p of LINUX_KNOWN) {
+      discoveryAttempts.push(p);
+      if (isRunnableFile(p)) systemCandidates.push({ kind: path.basename(p), executablePath: p });
+    }
+    for (const candidate of pathCandidatesOnPath(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"])) {
+      discoveryAttempts.push(candidate.executablePath);
+      systemCandidates.push(candidate);
+    }
   }
-  if (systemCandidates.length > 0) {
-    discoveryCache = systemCandidates[0] as DiscoveredBrowser;
-    return discoveryCache;
-  }
+  const cacheOnly = process.env.ULTRA_BROWSER_CACHE_ONLY === "1";
+  if (!cacheOnly) out.push(...systemCandidates);
   const pw = findInPlaywrightCache();
   if (pw) {
-    discoveryCache = pw;
-    return discoveryCache;
+    discoveryAttempts.push(pw.executablePath);
+    out.push(pw);
   }
   const pp = findInPuppeteerCache();
   if (pp) {
-    discoveryCache = pp;
-    return discoveryCache;
+    discoveryAttempts.push(pp.executablePath);
+    out.push(pp);
   }
-  discoveryCache = null;
-  return null;
+  // De-duplicate by executable path, preserving priority order.
+  const seen = new Set<string>();
+  return out.filter((candidate) => {
+    if (seen.has(candidate.executablePath)) return false;
+    seen.add(candidate.executablePath);
+    return true;
+  });
+}
+
+/** Every path discovery looked at, for honest failure messages. */
+export function browserDiscoveryAttempts(): string[] {
+  return [...new Set(discoveryAttempts)];
+}
+
+export function resetBrowserDiscoveryCache(): void {
+  discoveryCache = undefined;
+  discoveryAttempts.length = 0;
+}
+
+export function discoverBrowser(): DiscoveredBrowser | null {
+  if (discoveryCache !== undefined) return discoveryCache;
+  const candidates = browserCandidates();
+  discoveryCache = candidates[0] ?? null;
+  return discoveryCache;
 }
 
 export function browserInfo(): { available: boolean; kind: string | null; executablePath: string | null } {
@@ -306,20 +356,31 @@ class CdpConnection {
   }
 }
 
+/** Launch an exe, or a .cmd/.bat wrapper through cmd.exe on Windows. */
+function spawnBrowserExecutable(executablePath: string, args: string[]): ChildProcess {
+  if (/[.](cmd|bat)$/i.test(executablePath)) {
+    const commandLine = `"${executablePath}" ${args.map((arg) => `"${arg}"`).join(" ")}`;
+    return spawn(commandLine, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: true });
+  }
+  return spawn(executablePath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+}
+
 async function launchBrowserProcess(): Promise<{ connection: CdpConnection; info: DiscoveredBrowser }> {
   const info = discoverBrowser();
   if (!info) {
+    const tried = browserDiscoveryAttempts();
     throw new Error(
-      "No Chromium-compatible browser found. Install chromium/chrome/edge, or set ULTRA_BROWSER_PATH. Run `ultra doctor` for details.",
+      "No Chromium-compatible browser found. Install chromium/chrome/edge, or set ULTRA_BROWSER_PATH / HYPERFRAMES_BROWSER_PATH. " +
+        `Run \`ultra doctor\` for details. Paths tried:\n- ${tried.length > 0 ? tried.join("\n- ") : "(none — no candidates on this VM)"}`,
     );
   }
   const args = [
     ...CLOUD_SAFE_FLAGS,
     "--remote-debugging-port=0",
-    "--user-data-dir=" + path.join(os.tmpdir(), `ultra-cdp-profile-${process.pid}-${Date.now()}`),
+    "--user-data-dir=" + path.join(ultraTmpDir(), `ultra-cdp-profile-${process.pid}-${Date.now()}`),
     "about:blank",
   ];
-  const child = spawn(info.executablePath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child = spawnBrowserExecutable(info.executablePath, args);
   const wsUrl = await new Promise<string>((resolve, reject) => {
     let buffer = "";
     // First cold start on a loaded Linux runner can exceed 25s; 60s is still
@@ -401,7 +462,7 @@ class CdpPage implements UltraPage {
   }
 
   async setContent(html: string): Promise<void> {
-    const file = path.join(os.tmpdir(), `ultra-page-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.html`);
+    const file = path.join(ultraTmpDir(), `ultra-page-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.html`);
     await fs.writeFile(file, html, "utf8");
     this.tempFiles.push(file);
     await this.goto(pathToFileURL(file).href);
@@ -515,4 +576,66 @@ export async function closeCdpBrowser(): Promise<void> {
   if (!shared) return;
   shared.connection.close();
   shared = null;
+}
+
+/* ============================================================================
+ * Doctor: test-launch every candidate and persist the working path
+ * ========================================================================== */
+
+export interface BrowserLaunchAttempt {
+  executablePath: string;
+  error: string;
+}
+
+export async function testLaunchBrowser(executablePath: string, timeoutMs = 25_000): Promise<{ ok: boolean; error?: string }> {
+  const profile = path.join(ultraTmpDir(), `ultra-doctor-profile-${process.pid}-${Date.now()}`);
+  let child: ChildProcess | null = null;
+  try {
+    child = spawnBrowserExecutable(executablePath, [...CLOUD_SAFE_FLAGS, "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"]);
+    return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      let stderr = "";
+      let settled = false;
+      const finish = (ok: boolean, error?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          child?.kill();
+        } catch {
+          // ignore
+        }
+        resolve(ok ? { ok } : { ok: false, error });
+      };
+      const timer = setTimeout(() => finish(false, `no DevTools endpoint within ${timeoutMs}ms`), timeoutMs);
+      child?.stderr?.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+        if (/DevTools listening on ws:\/\//.test(stderr)) finish(true);
+      });
+      child?.on("error", (err) => finish(false, err.message));
+      child?.on("exit", (code) => finish(false, `exited early (code ${code}): ${tailLines(stderr, 3)}`));
+    });
+  } finally {
+    setTimeout(() => {
+      fs.rm(profile, { recursive: true, force: true }).catch(() => undefined);
+    }, 1_500).unref();
+  }
+}
+
+/**
+ * Doctor pre-flight: try each discovered browser in priority order and keep the
+ * first one that actually starts. Sets the in-process discovery cache so the
+ * same run uses it without an env var.
+ */
+export async function doctorSelectBrowser(): Promise<{ browser: DiscoveredBrowser | null; attempts: BrowserLaunchAttempt[] }> {
+  const attempts: BrowserLaunchAttempt[] = [];
+  for (const candidate of browserCandidates()) {
+    const result = await testLaunchBrowser(candidate.executablePath);
+    if (result.ok) {
+      discoveryCache = candidate;
+      return { browser: candidate, attempts };
+    }
+    attempts.push({ executablePath: candidate.executablePath, error: result.error ?? "launch failed" });
+  }
+  discoveryCache = null;
+  return { browser: null, attempts };
 }

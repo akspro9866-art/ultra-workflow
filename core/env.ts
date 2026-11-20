@@ -1,11 +1,98 @@
-import { promises as fs, readFileSync } from "node:fs";
+import { promises as fs, readFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DoctorReportT } from "./schema.js";
+import type { DoctorReportT, UltraProjectT } from "./schema.js";
 import { run } from "./ffmpeg.js";
 import { getBrowserInfo } from "./browser.js";
 import { pathExists } from "./util.js";
+
+/**
+ * Temp directory precedence: ULTRA_TMPDIR > <cwd>/workspace/.ultra-tmp > os.tmpdir().
+ * Cloud agent VMs mount /tmp as a ~512 MB tmpfs; renderer scratch must live on
+ * the (persistent, larger) workspace volume. Creates the directory when possible.
+ */
+export function ultraTmpDir(): string {
+  const override = (process.env.ULTRA_TMPDIR ?? "").trim();
+  if (override) {
+    try {
+      mkdirSync(override, { recursive: true });
+      return override;
+    } catch {
+      // fall through if the override is not creatable
+    }
+  }
+  const workspaceTmp = path.join(process.cwd(), "workspace", ".ultra-tmp");
+  try {
+    mkdirSync(workspaceTmp, { recursive: true });
+    return workspaceTmp;
+  } catch {
+    return os.tmpdir();
+  }
+}
+
+/** Free megabytes on the filesystem that holds `dir` (null when statfs is unavailable). */
+export async function freeSpaceMb(dir: string): Promise<number | null> {
+  try {
+    const stats = await fs.statfs(dir);
+    return Math.round((Number(stats.bavail) * Number(stats.bsize)) / (1024 * 1024));
+  } catch {
+    return null;
+  }
+}
+
+/** Doctor warning text when the chosen temp volume cannot hold large renders. */
+export function tmpSpaceWarning(freeMb: number | null, tmpPath: string): string | null {
+  if (freeMb === null) return null;
+  if (freeMb >= 2048) return null;
+  return `Temp dir ${tmpPath} has only ${freeMb} MB free (< 2 GB) — large renders may die mid-run. Set ULTRA_TMPDIR to a larger volume.`;
+}
+
+async function isWritableDir(dir: string): Promise<boolean> {
+  const probe = path.join(dir, `.ultra-write-test-${process.pid}-${Date.now()}`);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(probe, "ok", "utf8");
+    await fs.rm(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Conservative RAM estimate for a project render (browser buffers + subframe sequences + FFmpeg). */
+export function estimatePeakMb(project: Pick<UltraProjectT, "meta" | "scenes"> | null): number {
+  const baseMb = 350;
+  if (!project) return baseMb;
+  const width = project.meta.width;
+  const height = project.meta.height;
+  const frameMb = (width * height * 4) / (1024 * 1024);
+  const samples = Math.max(1, ...project.scenes.map((s) => s.motionBlurSamples ?? 1));
+  // Double-buffered page + screenshot + N subframe sequences + FFmpeg blend.
+  return Math.round(baseMb + frameMb * (3 + samples * 2) + samples * 40);
+}
+
+export class MemoryPreflightError extends Error {
+  constructor(
+    public readonly estimatedPeakMb: number,
+    public readonly totalMb: number,
+  ) {
+    super(
+      `Refusing to build: estimated peak RAM ${estimatedPeakMb} MB > 80% of total ${totalMb} MB. ` +
+        `Reduce meta.width/height, motionBlurSamples, or run on a larger VM. ` +
+        `Override only for known-safe local runs with ULTRA_SKIP_MEMORY_CHECK=1.`,
+    );
+    this.name = "MemoryPreflightError";
+  }
+}
+
+/** [4] Build must fail EARLY instead of dying at frame 300/508 or OOM-ing on a 4K upscale. */
+export function assertBuildMemoryFits(project: Pick<UltraProjectT, "meta" | "scenes">): void {
+  if (process.env.ULTRA_SKIP_MEMORY_CHECK === "1") return;
+  const totalMb = Math.round(os.totalmem() / (1024 * 1024));
+  const estimatedPeakMb = estimatePeakMb(project);
+  if (estimatedPeakMb > totalMb * 0.8) throw new MemoryPreflightError(estimatedPeakMb, totalMb);
+}
 
 /** Repository / install root — valid both from src (tsx, core/) and compiled dist (dist/core/). */
 export function installRoot(): string {
@@ -330,6 +417,34 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
     if (!tierInfo.pythonModules.pil) warnings.push("Host=chatgpt · Pillow not detected: py-canvas will use its FFmpeg filtergraph fallback.");
   }
 
+  // [4] Sandbox pre-flight: disk, writability, RAM — so builds fail before
+  // frame 300/508 instead of mid-render OOM on agent VMs.
+  const tmpPath = ultraTmpDir();
+  const workspaceDir = path.resolve(process.cwd(), "workspace");
+  const [tmpFreeMb, workspaceFreeMb, homeWritable, cacheWritable] = await Promise.all([
+    freeSpaceMb(tmpPath),
+    freeSpaceMb(workspaceDir),
+    isWritableDir(os.homedir()),
+    isWritableDir(path.join(process.cwd(), ".ultra-cache")),
+  ]);
+  let projectForEstimate: UltraProjectT | null = null;
+  try {
+    const raw = JSON.parse(await fs.readFile(path.join(workspaceDir, "ultra.json"), "utf8")) as UltraProjectT;
+    if (raw?.meta && Array.isArray(raw?.scenes)) projectForEstimate = raw;
+  } catch {
+    projectForEstimate = null;
+  }
+  const totalMb = Math.round(os.totalmem() / (1024 * 1024));
+  const estimatedPeakMbForProject = estimatePeakMb(projectForEstimate);
+  const spaceWarning = tmpSpaceWarning(tmpFreeMb, tmpPath);
+  if (spaceWarning) warnings.push(spaceWarning);
+  if (estimatedPeakMbForProject > totalMb * 0.8) {
+    warnings.push(
+      `Estimated peak RAM ${estimatedPeakMbForProject} MB exceeds 80% of ${totalMb} MB — ultra build will refuse this project on this VM.`,
+    );
+  }
+  if (!cacheWritable) warnings.push(`.ultra-cache is not writable at ${path.join(process.cwd(), ".ultra-cache")} — renders will fail.`);
+
   return {
     ok: Boolean(ffmpegVersionLine && ffprobeVersionLine),
     renderTier: tierInfo.tier,
@@ -348,6 +463,9 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
     ffmpeg: { available: Boolean(ffmpegVersionLine), version: ffmpegVersionLine },
     ffprobe: { available: Boolean(ffprobeVersionLine), version: ffprobeVersionLine },
     browser: browserInfo,
+    disk: { tmpFreeMb, workspaceFreeMb, tmpPath },
+    fs: { homeWritable, cacheWritable },
+    memory: { totalMb, estimatedPeakMbForProject },
     remotion: { installed: remotionInstalled },
     revideo: { installed: revideoInstalled },
     blender: { available: Boolean(blender), version: blender },

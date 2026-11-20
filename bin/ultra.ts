@@ -7,7 +7,7 @@ import { probeReference } from "../core/probe.js";
 import { loadProject, ProjectValidationError, resolveSourceVideoPath, validateProjectSemantics } from "../core/project.js";
 import { measureStreamDurations } from "../core/probe.js";
 import { validateAssets } from "../core/assets.js";
-import { buildProject, lintProject, type BuildManifest } from "../core/orchestrator.js";
+import { buildProject, buildScenePreview, lintProject, type BuildManifest } from "../core/orchestrator.js";
 import { stitchTimeline } from "../core/stitcher.js";
 import { ProbeResult, VerifyReport, type VerifyReportT, type ProbeResultT } from "../core/schema.js";
 import { DESIGN_TEMPLATE, MOTION_TEMPLATE, starterProject } from "../core/templates.js";
@@ -17,6 +17,8 @@ import { buildVisualPairs } from "../verifier/visual-diff.js";
 import { createRubric } from "../verifier/rubric.js";
 import { applyPatch } from "../verifier/patcher.js";
 import { runStyleVerify } from "../verifier/style-verify.js";
+import { verifyScene } from "../verifier/scene-verify.js";
+import { previewFrame, previewRange } from "../core/preview.js";
 import { styleProbe } from "../core/style-probe.js";
 import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
 import { loadStylePack, rawProbe } from "../core/raw-probe.js";
@@ -60,7 +62,9 @@ import { loadRagIndex, queryRag } from "../core/rag.js";
 import { buildContextPack, type ContextStage } from "../core/context-pack.js";
 import { getRoleStatus } from "../core/orchestrator-roles.js";
 import { autoFixRalph, initRalph, readRalphState } from "../core/ralph.js";
-import { patchState, resolveProcessMode, setProcessMode } from "../core/state.js";
+import { patchState, readBrowserPathSync, resolveProcessMode, setProcessMode } from "../core/state.js";
+import { doctorSelectBrowser } from "../core/cdp-browser.js";
+import { assertBuildMemoryFits, MemoryPreflightError } from "../core/env.js";
 
 class CliError extends Error {}
 
@@ -111,6 +115,14 @@ function paths(): CliPaths {
   };
 }
 
+// [1] Reuse the browser path `ultra doctor` persisted to workspace/state.json —
+// no ULTRA_BROWSER_PATH env var needed in later invocations.
+program.hook("preAction", () => {
+  if (process.env.ULTRA_BROWSER_PATH || process.env.HYPERFRAMES_BROWSER_PATH) return;
+  const persisted = readBrowserPathSync(paths().workspace);
+  if (persisted) process.env.ULTRA_BROWSER_PATH = persisted;
+});
+
 async function loadValidatedProject(workspace: string) {
   const projectFile = path.join(workspace, "ultra.json");
   if (!(await pathExists(projectFile))) {
@@ -140,6 +152,30 @@ program
   .action(async (options: { json?: boolean; host: string }) => {
     const host = options.host === "gemini" || options.host === "muse" || options.host === "chatgpt" ? options.host : "auto";
     const report = await detectEnvironment(host);
+    // [1] Test-launch the discovered browser(s) and persist the working path.
+    if (process.env.ULTRA_NO_BROWSER !== "1" && (!report.forcedTier || report.forcedTier === "full-cdp")) {
+      const selection = await doctorSelectBrowser();
+      if (selection.browser) {
+        report.browser = {
+          available: true,
+          kind: selection.browser.kind,
+          executablePath: selection.browser.executablePath,
+        };
+        await patchState(paths().workspace, { browserPath: selection.browser.executablePath });
+        if (!report.forcedTier && report.renderTier !== "full-cdp") {
+          report.renderTier = "full-cdp";
+          report.warnings = report.warnings.filter((warning) => !warning.startsWith("No browser"));
+        }
+      } else if (selection.attempts.length > 0) {
+        report.browser = { available: false, kind: null, executablePath: null };
+        report.warnings.push(
+          `Browser candidates found but none launched:\n- ${selection.attempts
+            .map((attempt) => `${attempt.executablePath} (${attempt.error.split("\n")[0]})`)
+            .join("\n- ")}`,
+        );
+        if (!report.forcedTier) report.renderTier = report.pythonModules.pil ? "browserless-py" : "ffmpeg-only";
+      }
+    }
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));
     } else {
@@ -155,6 +191,9 @@ program
       console.log(`  ffmpeg      ${report.ffmpeg.version ?? "not found"}`);
       console.log(`  ffprobe     ${report.ffprobe.version ?? "not found"}`);
       console.log(`  browser     ${report.browser.kind ?? "not found"}${report.browser.executablePath ? ` (${report.browser.executablePath})` : ""}`);
+      console.log(`  disk        tmp ${report.disk.tmpFreeMb ?? "?"} MB free (${report.disk.tmpPath}) · workspace ${report.disk.workspaceFreeMb ?? "?"} MB free`);
+      console.log(`  fs          home ${report.fs.homeWritable ? "writable" : "NOT writable"} · .ultra-cache ${report.fs.cacheWritable ? "writable" : "NOT writable"}`);
+      console.log(`  memory      ${report.memory.totalMb} MB total · ~${report.memory.estimatedPeakMbForProject} MB estimated peak for this project`);
       console.log(`  remotion    ${report.remotion.installed ? "installed" : "optional — not installed"}`);
       console.log(`  revideo     ${report.revideo.installed ? "installed" : "optional — not installed"}`);
       console.log(`  blender     ${report.blender.version ?? "not found (py-canvas/Three.js fallback)"}`);
@@ -267,13 +306,18 @@ program
 
 program
   .command("probe <reference>")
-  .description("Rule 1: ffprobe metadata + scene cuts + audio onsets + labeled contact sheets")
+  .description("Rule 1: ffprobe metadata + scene cuts (hard + soft) + onsets + labeled contact sheets [+ geometry]")
   .option("--json", "machine-readable JSON only")
-  .action(async (reference: string, options: { json?: boolean }) => {
+  .option("--geometry", "[6] also write workspace/geometry.json (lines / rects / text regions per segment)")
+  .option("--max-segments <n>", "cap palette segments (default: all; truncation is warned)")
+  .action(async (reference: string, options: { json?: boolean; geometry?: boolean; maxSegments?: string }) => {
     const { workspace } = paths();
     await ensureDir(workspace);
     const ref = path.resolve(reference);
-    const result = await probeReference(ref, workspace);
+    const result = await probeReference(ref, workspace, {
+      geometry: Boolean(options.geometry),
+      ...(options.maxSegments !== undefined ? { maxSegments: Number(options.maxSegments) } : {}),
+    });
     await setProcessMode(workspace, "clone-reference");
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -281,10 +325,26 @@ program
       console.log(`probe → ${path.join(workspace, "probe.json")}`);
       console.log(`  video      ${result.width}x${result.height} @ ${result.fps.numeric}fps (${result.fps.rational}) · ${result.durationSec}s · ${result.pixelFormat}`);
       console.log(`  audio      ${result.audio ? `${result.audio.codec} ${result.audio.sampleRate}Hz ${result.audio.channels}ch` : "none"}`);
-      console.log(`  cuts       ${result.cutsSec.length} ${JSON.stringify(result.cutsSec)}`);
+      console.log(`  cuts       ${result.cutsSec.length} hard ${JSON.stringify(result.cutsSec)}`);
+      if (result.softCutsSec.length > 0) {
+        console.log(
+          `  soft cuts  ${result.softCutsSec.length} ${JSON.stringify(result.softCutsSec)} (frames ${result.softCutFrames.map((f) => f.frame).join(", ")})`,
+        );
+      }
       console.log(`  onsets     ${result.onsetsSec.length} ${JSON.stringify(result.onsetsSec.slice(0, 12))}`);
       console.log(`  frames     ${result.frames.length} in probe-frames/`);
       console.log(`  sheets     ${result.contactSheets.join(", ")}`);
+      if (options.geometry) console.log(`  geometry   ${path.join(workspace, "geometry.json")}`);
+      if (typeof result.containsRealRecording === "boolean") {
+        console.log(`  audioSrc   containsRealRecording ${result.containsRealRecording} (heuristic)`);
+      }
+      if (result.cloneFeasibility) {
+        const f = result.cloneFeasibility;
+        console.log(
+          `  clone      score ${f.score}/100 · ${f.bitratePerPixel.toFixed(3)} bits/px/frame · text ${f.textLegibility} · sharpness ${f.sharpnessEstimate}`,
+        );
+        for (const warning of f.warnings) console.log(`  warning    ${warning}`);
+      }
     }
   });
 
@@ -343,9 +403,12 @@ program
     } else {
       console.log(`  ${result.todo.missing.length} asset(s) to generate:`);
       for (const item of result.todo.missing) {
-        console.log(`  - ${item.id} (${item.type}) → ${item.targetPath}`);
+        console.log(
+          `  - ${item.id} (${item.type}) → ${item.targetPath}${item.similarityTarget ? ` · similarity target ${item.similarityTarget.sceneId} [${item.similarityTarget.startSec}s..${item.similarityTarget.endSec}s]` : ""}`,
+        );
       }
     }
+    for (const warning of result.warnings) console.log(`  WARNING   ${warning}`);
   });
 
 program
@@ -355,6 +418,7 @@ program
     const { workspace } = paths();
     const project = await loadValidatedProject(workspace);
     const result = await validateAssets(project, workspace);
+    for (const warning of result.warnings) console.log(`WARNING ${warning}`);
     if (!result.ok) {
       console.error(JSON.stringify({ ok: false, errors: result.errors }, null, 2));
       throw new CliError(`validate-assets: ${result.errors.length} asset(s) invalid (see JSON above)`);
@@ -368,11 +432,21 @@ program
   .option("--strict-engine", "fail instead of falling back to HyperFrames")
   .option("--proxy", "fast proxy render (max 1280px) with exact aspect for cloud iteration")
   .option("--resolution <resolution>", "proxy|1080p|4k render size override")
+  .option("--scene <id>", "[21] render ONLY this scene + 1s handles → build/scene-<id>-preview.mp4")
   .option("--skip-approval", "test-only: bypass the pre-production approval gate")
   .option("--require-approval", "force the Process 2B approval gate even outside edit-in-style")
-  .action(async (options: { strictEngine?: boolean; proxy?: boolean; resolution?: string; skipApproval?: boolean; requireApproval?: boolean }) => {
+  .action(async (options: { strictEngine?: boolean; proxy?: boolean; resolution?: string; scene?: string; skipApproval?: boolean; requireApproval?: boolean }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
+    // [4] Fail before frame 0, not at frame 300/508: RAM preflight.
+    try {
+      assertBuildMemoryFits(project);
+    } catch (err) {
+      if (err instanceof MemoryPreflightError) {
+        throw new CliError(`[preflight] ${err.message} (run \`ultra doctor --json\` for disk/fs/memory)`);
+      }
+      throw err;
+    }
     const mode = await resolveProcessMode(workspace, project);
     const gate = await checkApprovalGate(workspace, {
       skip: options.skipApproval,
@@ -387,6 +461,24 @@ program
       resolution === "proxy" || resolution === "1080p" || resolution === "4k"
         ? planDimensions(aspect, resolution)
         : { width: project.meta.width, height: project.meta.height };
+    if (options.scene) {
+      const preview = await buildScenePreview({
+        project,
+        workspace,
+        buildDir,
+        sceneId: options.scene,
+        strictEngine: options.strictEngine,
+        renderWidth: dims.width,
+        renderHeight: dims.height,
+      });
+      console.log(`build --scene ${preview.sceneId} → ${preview.previewFile}`);
+      console.log(
+        `  ${preview.clip.engineUsed} ${preview.clip.cached ? "cache" : "rendered"} · cache ${preview.cache.hits}h/${preview.cache.misses}m · other scenes not rendered`,
+      );
+      console.log(`  manifest ${preview.manifestFile} · contact sheet ${path.join(buildDir, "contact-sheet.png")}`);
+      console.log(`Next: ultra verify --scene ${preview.sceneId} "${project.meta.sourceVideoPath}"`);
+      return;
+    }
     const manifest = await buildProject({
       project,
       workspace,
@@ -402,6 +494,49 @@ program
       );
     }
     console.log(`  transitions ${manifest.stitch.transitionCount} · overlays ${manifest.stitch.overlayCount} · cache ${manifest.cache.hits}h/${manifest.cache.misses}m`);
+    console.log(`  contact sheet ${path.join(buildDir, "contact-sheet.png")}`);
+  });
+
+program
+  .command("preview")
+  .description("[20] render ONE frame or a frame range without a full build (full-cdp)")
+  .option("--frame <n>", "frame index to preview (side-by-side + diff vs the reference)")
+  .option("--from <f>", "first frame of a range")
+  .option("--to <t>", "last frame of a range (inclusive)")
+  .option("--ref <file>", "reference video override (default meta.sourceVideoPath)")
+  .option("--proxy", "use the proxy resolution", false)
+  .action(async (options: { frame?: string; from?: string; to?: string; ref?: string; proxy?: boolean }) => {
+    const { workspace, buildDir } = paths();
+    const project = await loadValidatedProject(workspace);
+    const aspect = project.meta.aspectProfile ?? aspectFromDims(project.meta.width, project.meta.height);
+    const dims = options.proxy ? planDimensions(aspect, "proxy") : { width: project.meta.width, height: project.meta.height };
+    const ctx = {
+      project,
+      workspace,
+      buildDir,
+      width: dims.width,
+      height: dims.height,
+      ...(options.ref ? { referenceFile: path.resolve(options.ref) } : {}),
+    };
+    if (options.frame !== undefined) {
+      const frame = Number(options.frame);
+      if (!Number.isFinite(frame) || frame < 0 || Math.floor(frame) !== frame) throw new CliError("--frame must be a non-negative integer");
+      const result = await previewFrame(ctx, frame);
+      console.log(`preview --frame ${frame} → ${result.frameFile}`);
+      if (result.diffFile) console.log(`  diff → ${result.diffFile}`);
+      console.log(`  scene ${result.sceneId} · t ${result.timestampSec}s · no full build performed`);
+      return;
+    }
+    if (options.from !== undefined && options.to !== undefined) {
+      const from = Number(options.from);
+      const to = Number(options.to);
+      if (!Number.isFinite(from) || !Number.isFinite(to)) throw new CliError("--from/--to must be integers");
+      const result = await previewRange(ctx, from, to);
+      console.log(`preview --from ${from} --to ${to} → ${result.rangeFile}`);
+      console.log(`  ${result.frames} frames · scenes ${result.scenes.join(", ")} · contact sheet ${path.join(buildDir, "contact-sheet.png")}`);
+      return;
+    }
+    throw new CliError("preview needs --frame <n> or --from <f> --to <t>");
   });
 
 program
@@ -409,9 +544,36 @@ program
   .description("Rule 5: 2A `verify <ref.mp4>` (1:1 clone) · 2B `verify --style <slug>` (edit in style)")
   .option("--draft <path>", "draft video to audit", "build/draft.mp4")
   .option("--style <slug>", "Process 2B: verify against an installed Style Pack")
-  .action(async (reference: string | undefined, options: { draft: string; style?: string }) => {
+  .option("--scene <id>", "[21] verify ONE scene only (metrics + visual-diff + lint)")
+  .action(async (reference: string | undefined, options: { draft: string; style?: string; scene?: string }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
+    if (options.scene) {
+      if (options.style) throw new CliError("--scene and --style cannot be combined");
+      if (!reference) throw new CliError("verify --scene needs a reference video: ultra verify --scene <id> <ref.mp4>");
+      const sceneRef = path.resolve(reference);
+      if (!(await pathExists(sceneRef))) throw new CliError(`Reference video not found: ${sceneRef}`);
+      const result = await verifyScene({ project, sceneId: options.scene, reference: sceneRef, workspace, buildDir });
+      const metrics = result.report.quantitative;
+      console.log(`verify --scene ${options.scene} → ${result.reportFile}`);
+      console.log(
+        `  duration  Δ${metrics.durationDeltaSec >= 0 ? "+" : ""}${metrics.durationDeltaSec}s ${metrics.durationOk ? "OK" : "FAIL"} · fps ${metrics.fpsActual ?? "?"} ${metrics.fpsOk ? "OK" : "FAIL"} · cfr ${metrics.cfr ? "OK" : "FAIL"}`,
+      );
+      console.log(
+        `  motion    stutterEvents ${metrics.stutterEvents} (${metrics.jitterOk ? "OK" : "FAIL"}) · black frames ${metrics.blackDetections.length} ${metrics.blackOk ? "OK" : "FAIL"}`,
+      );
+      console.log(
+        `  lint      ${result.report.lint.defectCount} defects (${result.report.lint.criticalDefectCount} critical) ${result.report.lint.pass ? "OK" : "FAIL"}`,
+      );
+      console.log(`  pairs     ${result.pairs.length} → ${path.join(buildDir, "audit-frames", `scene-${options.scene}`, "pair_*.png")}`);
+      if (!result.report.pass) {
+        console.log(`  RESULT    FAIL — patch the scene, then ultra build --scene ${options.scene} && ultra verify --scene ${options.scene}`);
+        process.exitCode = 1;
+      } else {
+        console.log(`  RESULT    PASS (scene only) — run \`ultra build\` + full \`ultra verify\` before render`);
+      }
+      return;
+    }
     const draft = path.resolve(options.draft);
     if (!(await pathExists(draft))) throw new CliError(`Draft not found: ${draft}. Run \`ultra build\` first.`);
     const reportFile = path.join(buildDir, "verify-report.json");

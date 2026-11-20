@@ -29,7 +29,7 @@ export interface CliRun {
   stderr: string;
 }
 
-export async function runCli(cwd: string, args: string[], timeoutMs = 900_000): Promise<CliRun> {
+export async function runCli(cwd: string, args: string[], timeoutMs = 900_000, envOverrides: Record<string, string | undefined> = {}): Promise<CliRun> {
   const requireFromRoot = createRequire(path.join(ROOT, "package.json"));
   const loaderPath = requireFromRoot.resolve("tsx/esm");
   const binPath = path.join(ROOT, "bin", "ultra.ts");
@@ -37,7 +37,7 @@ export async function runCli(cwd: string, args: string[], timeoutMs = 900_000): 
     const child = spawn(process.execPath, ["--import", pathToFileURL(loaderPath).href, binPath, ...args], {
       cwd,
       windowsHide: true,
-      env: { ...process.env, NO_COLOR: "1" },
+      env: { ...process.env, NO_COLOR: "1", ...envOverrides },
     });
     let stdout = "";
     let stderr = "";

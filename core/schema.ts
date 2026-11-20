@@ -274,6 +274,12 @@ export const AssetSpec = z
     durationSec: z.number().positive().optional(),
     requireAlpha: z.boolean().optional(),
     targetPath: z.string().min(1),
+    /** Optional explicit reference window this asset replaces (defaults to its target scene). */
+    refSegment: z
+      .object({ startSec: z.number().min(0), endSec: z.number().positive() })
+      .optional(),
+    /** Provenance label for audio assets (synth-audio writes are auto-labelled "synthesised"). */
+    origin: z.enum(["synthesised", "recorded", "licensed", "user-supplied"]).optional(),
   })
   .superRefine((asset, ctx) => {
     if (asset.type === "png_alpha" && asset.requireAlpha === false) {
@@ -346,6 +352,17 @@ export const UltraProject = z.object({
   audio: AudioSpec.default({}),
   assets: z.array(AssetSpec).default([]),
   scenes: z.array(SceneSpec).min(1),
+  /**
+   * [18] Asset ↔ reference similarity thresholds. Defaults WARN (never fail)
+   * so a wrong-looking asset is surfaced before build, not after a 4/10 review.
+   */
+  assetSimilarity: z
+    .object({
+      minSsim: z.number().min(0).max(1).default(0.55),
+      maxHistogramDistance: z.number().min(0).max(1).default(0.35),
+      edgeRatioTolerance: z.number().min(0).max(1).default(0.5),
+    })
+    .default({}),
 });
 
 export type UltraProjectT = z.infer<typeof UltraProject>;
@@ -383,6 +400,8 @@ export const ScenePalette = z.object({
   colors: z.array(z.object({ hex: HexColor, share: z.number().min(0).max(1) })),
   avgLuminance: z.number().min(0).max(1),
   contrast: z.number().min(0).max(1),
+  /** Mean per-frame YAVG difference inside the segment (motion energy proxy). */
+  motionScore: z.number().min(0).default(0),
 });
 
 export const ProbeFrame = z.object({
@@ -412,11 +431,29 @@ export const ProbeResult = z.object({
     })
     .nullable(),
   cutsSec: z.array(z.number()),
+  /** Soft/graphic reconfigurations found by the second probe pass (no hard cut). */
+  softCutsSec: z.array(z.number()).default([]),
+  /** Soft cuts with their frame numbers, for exact patching. */
+  softCutFrames: z
+    .array(z.object({ atSec: z.number(), frame: z.number().int().min(0) }))
+    .default([]),
   onsetsSec: z.array(z.number()),
   frames: z.array(ProbeFrame),
   contactSheets: z.array(z.string()),
   scenes: z.array(ScenePalette).default([]),
   audioEnvelopePath: z.string().nullable().default(null),
+  /** [8] Honest quality floor: what this reference can/cannot support cloning. */
+  cloneFeasibility: z
+    .object({
+      score: z.number().min(0).max(100),
+      bitratePerPixel: z.number().min(0),
+      textLegibility: z.enum(["ok", "poor", "destroyed"]),
+      sharpnessEstimate: z.number().min(0),
+      warnings: z.array(z.string()).default([]),
+    })
+    .optional(),
+  /** [30] Simple documented heuristic — not a classifier. */
+  containsRealRecording: z.boolean().optional(),
 });
 
 export const AudioEnvelope = z.object({
@@ -440,6 +477,21 @@ export const AssetCheck = z.object({
   sha1: z.string().nullable(),
   valid: z.boolean(),
   status: z.string(),
+  /** [18] content similarity to the reference segment this asset replaces. */
+  similarity: z
+    .object({
+      sceneId: z.string(),
+      startSec: z.number(),
+      endSec: z.number(),
+      ssimToRefSegment: z.number().nullable(),
+      histogramDistance: z.number().nullable(),
+      edgeDensityRatio: z.number().nullable(),
+      warnings: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .optional(),
+  /** [30] audio provenance carried into the delivery manifest. */
+  origin: z.enum(["synthesised", "recorded", "licensed", "user-supplied"]).optional(),
 });
 
 export const AssetManifest = z.object({
@@ -463,6 +515,9 @@ export const AssetTodo = z.object({
       requireAlpha: z.boolean().optional(),
       targetPath: z.string(),
       instruction: z.string(),
+      similarityTarget: z
+        .object({ sceneId: z.string(), startSec: z.number(), endSec: z.number() })
+        .optional(),
       chatgptStrategy: z
         .enum(["native-image", "native-image-plus-2.5d-rig", "ultra-synth-audio", "python-authored"])
         .optional(),
@@ -657,6 +712,25 @@ export const DoctorReport = z.object({
     kind: z.string().nullable(),
     executablePath: z.string().nullable(),
   }),
+  disk: z
+    .object({
+      tmpFreeMb: z.number().nullable(),
+      workspaceFreeMb: z.number().nullable(),
+      tmpPath: z.string(),
+    })
+    .default({ tmpFreeMb: null, workspaceFreeMb: null, tmpPath: "" }),
+  fs: z
+    .object({
+      homeWritable: z.boolean(),
+      cacheWritable: z.boolean(),
+    })
+    .default({ homeWritable: false, cacheWritable: false }),
+  memory: z
+    .object({
+      totalMb: z.number(),
+      estimatedPeakMbForProject: z.number(),
+    })
+    .default({ totalMb: 0, estimatedPeakMbForProject: 0 }),
   remotion: z.object({ installed: z.boolean() }),
   revideo: z.object({ installed: z.boolean() }),
   blender: z.object({ available: z.boolean(), version: z.string().nullable() }),

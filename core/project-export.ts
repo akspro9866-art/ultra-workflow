@@ -1,12 +1,11 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { SceneSpecT, UltraProjectT } from "./schema.js";
 import { resolveAssetPath, resolveSourceClipPath } from "./assets.js";
 import { loadProject } from "./project.js";
 import { loadPlan, aspectFromDims, planDimensions } from "./preprod.js";
 import { loadStylePack } from "./raw-probe.js";
-import { listBundledFonts, installRoot } from "./env.js";
+import { listBundledFonts, installRoot, ultraTmpDir } from "./env.js";
 import { createZip, extractZip } from "./zip.js";
 import { ensureDir, pathExists, readJson, rmrf, writeJsonAtomic } from "./util.js";
 
@@ -463,7 +462,7 @@ ${audioLines.join("\n")}
   await collect(outDir);
   await ensureDir(path.dirname(zipPath));
   const zip = await createZip(zipInputs, zipPath);
-  const verifyDir = await fs.mkdtemp(path.join(os.tmpdir(), "ultra-export-check-"));
+  const verifyDir = await fs.mkdtemp(path.join(ultraTmpDir(), "ultra-export-check-"));
   try {
     const { entries } = await extractZip(zipPath, verifyDir);
     if (entries.length === 0 || entries.some((entry) => !entry.crcOk)) {
