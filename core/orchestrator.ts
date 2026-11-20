@@ -12,7 +12,7 @@ import { detectRenderTier, type RenderTier } from "./env.js";
 import { sceneRenderDuration } from "./project.js";
 import { stitchTimeline, type StitchClip, type StitchResult } from "./stitcher.js";
 import { resolveAssetPath } from "./assets.js";
-import { ensureDir, pathExists, rmrf, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
+import { ensureDir, pathExists, readJson, rmrf, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
 import { ffmpegOk } from "./ffmpeg.js";
 import { renderDraftContactSheet } from "./contact-sheet.js";
 
@@ -250,6 +250,30 @@ export async function renderSceneClip(
   const sceneCopy = path.join(buildDir, "scenes", `${safeSceneId(scene.id)}${ext}`);
   await fs.copyFile(sceneFile, sceneCopy);
 
+  // [11] Honest motion-blur warning using the probe's measured motion energy.
+  const notesExtra: string[] = [];
+  if ((scene.motionBlurSamples ?? 1) === 1) {
+    try {
+      const probe = await readJson<{ scenes?: { startSec?: number; motionScore?: number }[] }>(path.join(workspace, "probe.json"));
+      const match = (probe.scenes ?? []).find((entry) => Math.abs(Number(entry.startSec ?? -99) - scene.startSec) < 0.2);
+      if (match && Number(match.motionScore ?? 0) > 2.5) {
+        const warning = `build: scene "${scene.id}" has fast motion (probe motionScore ${match.motionScore}) rendered without motion blur — raise motionBlurSamples`;
+        console.warn(warning);
+        notesExtra.push(warning);
+      }
+    } catch {
+      // no probe measurement available
+    }
+  }
+  if (resolvedKey === "ffmpeg-only") {
+    if ((scene.guides ?? []).length > 0 || scene.layers.some((layer) => layer.anchor) || scene.textElements.some((text) => text.anchor)) {
+      notesExtra.push("ffmpeg-only ignores guides/anchors (logged warning)");
+    }
+    if (scene.layers.some((layer) => layer.mask) || scene.textElements.some((text) => text.mask) || scene.clipReveal?.mask) {
+      notesExtra.push("ffmpeg-only does not support masks (rect/circle without feather are also unsupported in this tier)");
+    }
+  }
+
   return {
     sceneId: scene.id,
     file: sceneFile,
@@ -265,7 +289,7 @@ export async function renderSceneClip(
       ? { fallbackReason: choice.tierFallback, browserless: choice.tierFallback === "browserless-py" }
       : {}),
     cached,
-    notes,
+    notes: [...notes, ...notesExtra],
   };
 }
 

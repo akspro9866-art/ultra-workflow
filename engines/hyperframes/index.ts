@@ -5,8 +5,9 @@ import type { RenderContext, RenderOutcome, SceneEngine } from "../types.js";
 import { compileSceneHtml } from "./compiler.js";
 import { lintScene } from "./lint.js";
 import { closePage, getBrowserInfo, newPage, settlePage, waitForVideos } from "../../core/browser.js";
-import { ensureDir, rmrf, round } from "../../core/util.js";
+import { ensureDir, pathExists, rmrf, round, sha1, sha1File } from "../../core/util.js";
 import { ffmpegOk } from "../../core/ffmpeg.js";
+import { resolveAssetPath } from "../../core/assets.js";
 
 function safeId(id: string): string {
   return id.replace(/[^\w.-]/g, "_");
@@ -70,10 +71,63 @@ async function blendSequences(sequences: string[], fps: number, frames: number, 
 }
 
 /**
+ * [10] `videoMode: "frames"`: pre-extract the needed frame range with FFmpeg to
+ * a PNG sequence in .ultra-cache and frame-step it deterministically. Disk cost:
+ * width×height RGBA PNGs per source frame (documented in FIX_REPORT).
+ */
+async function prepareVideoFrames(ctx: RenderContext): Promise<Record<string, { dir: string; count: number }>> {
+  const frames: Record<string, { dir: string; count: number }> = {};
+  if (ctx.scene.videoMode !== "frames") return frames;
+  for (const layer of ctx.scene.layers) {
+    if (layer.type !== "video" || !layer.assetId) continue;
+    const asset = ctx.project.assets.find((a) => a.id === layer.assetId);
+    if (!asset) continue;
+    const file = resolveAssetPath(ctx.workspace, asset);
+    if (!(await pathExists(file))) continue;
+    const digest = await sha1File(file);
+    const key = sha1(
+      [digest, layer.inSec, layer.rate, layer.loop, ctx.durationSec, ctx.fps, ctx.width, ctx.height].join("|"),
+    );
+    const dir = path.join(process.cwd(), ".ultra-cache", "video-frames", key);
+    let count = 0;
+    try {
+      count = (await fs.readdir(dir)).filter((name) => /^f_\d{5}\.png$/.test(name)).length;
+    } catch {
+      count = 0;
+    }
+    if (count === 0) {
+      await rmrf(dir);
+      await ensureDir(dir);
+      const range = Math.max(0.1, ctx.durationSec * layer.rate + 0.25);
+      await ffmpegOk(
+        [
+          "-ss",
+          layer.inSec.toFixed(3),
+          "-i",
+          file,
+          "-t",
+          range.toFixed(3),
+          "-vf",
+          `fps=${ctx.fps}`,
+          "-start_number",
+          "1",
+          path.join(dir, "f_%05d.png"),
+        ],
+        { timeoutMs: 20 * 60_000 },
+      );
+      count = (await fs.readdir(dir)).filter((name) => /^f_\d{5}\.png$/.test(name)).length;
+    }
+    if (count === 0) throw new Error(`videoMode "frames": FFmpeg extracted no frames for layer "${layer.id}"`);
+    frames[layer.id] = { dir, count };
+  }
+  return frames;
+}
+
+/**
  * Deterministic frame stepper: every frame is produced by explicitly seeking the
  * in-page runtime (`__ULTRA_SEEK`) and capturing a lossless PNG, then encoding
  * at exact CFR. Optional subframe motion blur renders `motionBlurSamples`
- * sub-positions per frame and blends them via FFmpeg (`blend` average).
+ * sub-positions per frame (up to 8) and blends them via FFmpeg (`blend` average).
  */
 export const hyperframesEngine: SceneEngine = {
   key: "hyperframes",
@@ -89,10 +143,11 @@ export const hyperframesEngine: SceneEngine = {
 
   async renderScene(ctx: RenderContext): Promise<RenderOutcome> {
     const frames = Math.max(1, Math.round(ctx.durationSec * ctx.fps));
-    const samples = Math.max(1, Math.min(4, ctx.scene.motionBlurSamples ?? 1));
+    const samples = Math.max(1, Math.min(8, ctx.scene.motionBlurSamples ?? 1));
     const workDir = path.join(ctx.buildDir, "tmp", `hf_${safeId(ctx.scene.id)}`);
     await rmrf(workDir);
     await ensureDir(workDir);
+    const videoFrames = await prepareVideoFrames(ctx);
     const htmlPath = path.join(workDir, "scene.html");
     await fs.writeFile(
       htmlPath,
@@ -103,6 +158,7 @@ export const hyperframesEngine: SceneEngine = {
         width: ctx.width,
         height: ctx.height,
         fps: ctx.fps,
+        ...(Object.keys(videoFrames).length > 0 ? { videoFrames } : {}),
       }),
       "utf8",
     );

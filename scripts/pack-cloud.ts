@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
 import { installRoot } from "../core/env.js";
@@ -49,6 +50,13 @@ async function normalizeLf(stage: string): Promise<number> {
 }
 
 async function bundleCli(root: string, dist: string): Promise<number> {
+  // [3] Provenance: embed the packing commit and ship a source map.
+  let commit = "unknown";
+  try {
+    commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim() || "unknown";
+  } catch {
+    commit = "unknown";
+  }
   await esbuild({
     entryPoints: [path.join(root, "bin", "ultra.ts")],
     bundle: true,
@@ -58,13 +66,13 @@ async function bundleCli(root: string, dist: string): Promise<number> {
     outfile: path.join(dist, "ultra.mjs"),
     minify: true,
     legalComments: "none",
-    sourcemap: false,
+    sourcemap: "external",
     logLevel: "warning",
     absWorkingDir: root,
     external: ["playwright-core", "bufferutil", "utf-8-validate"],
     define: { "process.env.ULTRA_BUNDLED": '"1"' },
     banner: {
-      js: "import { createRequire as __ultraCreateRequire } from 'node:module';\nconst require = __ultraCreateRequire(import.meta.url);",
+      js: `/* ultra-bundle-commit: ${commit} */\nimport { createRequire as __ultraCreateRequire } from 'node:module';\nconst require = __ultraCreateRequire(import.meta.url);`,
     },
   });
   const stat = await fs.stat(path.join(dist, "ultra.mjs"));

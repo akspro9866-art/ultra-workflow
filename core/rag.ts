@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { SYNTH_PRESETS } from "./synth-audio.js";
 import { installRoot } from "./env.js";
 import { pathExists } from "./util.js";
@@ -86,7 +87,7 @@ export async function buildRagIndex(root = installRoot()): Promise<RagIndex> {
   const rel = (file: string) => path.relative(root, file).split(path.sep).join("/");
   const stylesDir = path.join(root, "styles");
   try {
-    for (const entry of await fs.readdir(stylesDir, { withFileTypes: true })) {
+    for (const entry of (await fs.readdir(stylesDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue;
       const dir = path.join(stylesDir, entry.name);
       const styleFile = path.join(dir, "style.json");
@@ -112,7 +113,7 @@ export async function buildRagIndex(root = installRoot()): Promise<RagIndex> {
         metadata: { slug: raw["meta"]?.slug ?? entry.name, palette, typography: raw["typography"] ?? {} },
       });
       try {
-        for (const motif of (await fs.readdir(path.join(dir, "motifs"))).filter((name) => name.endsWith(".html"))) {
+        for (const motif of (await fs.readdir(path.join(dir, "motifs"))).filter((name) => name.endsWith(".html")).sort()) {
           const motifPath = path.join(dir, "motifs", motif);
           const html = await fs.readFile(motifPath, "utf8");
           docs.push({
@@ -137,7 +138,7 @@ export async function buildRagIndex(root = installRoot()): Promise<RagIndex> {
   const walkMd = async (dir: string, kind: RagKind): Promise<void> => {
     let entries;
     try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
+      entries = (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
     } catch {
       return;
     }
@@ -185,7 +186,10 @@ export async function buildRagIndex(root = installRoot()): Promise<RagIndex> {
     });
   }
 
-  return { version: 1, builtAt: new Date().toISOString(), docs };
+  // Deterministic index: a content hash, not a wall-clock timestamp, so
+  // `npm run pack:cloud` is reproducible (CI dist-check).
+  const contentHash = createHash("sha1").update(JSON.stringify(docs)).digest("hex").slice(0, 12);
+  return { version: 1, builtAt: `sha1:${contentHash}`, docs };
 }
 
 export async function loadRagIndex(root = installRoot()): Promise<RagIndex> {

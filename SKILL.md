@@ -167,13 +167,15 @@ downloaded packs in Qoder via `prompts/QODER_IMPORT_STYLE_TO_REPO.txt`
 ## 1 · ANALYZE (Rule 1 — measure, never guess)
 
 ```bash
-$ULTRA probe <reference.mp4>
+$ULTRA probe <reference.mp4> --geometry
 ```
-Inspect natively: `workspace/probe.json` (exact fps/resolution/duration, cuts,
-onsets, **per-scene dominant palettes + luminance/contrast**, frame RMS
-`workspace/audio-envelope.json` with beat peaks) and every
-`workspace/contact-sheet-*.png` (timestamp + cut number + palette swatches per
-tile). Use those measured hexes — do not eyeball colors.
+Inspect natively: `workspace/probe.json` (exact fps/resolution/duration, hard
+cuts, **soft cuts with frame numbers**, onsets, per-scene palettes/luminance/
+contrast/motionScore, `cloneFeasibility`), `workspace/geometry.json` (lines /
+rects / text regions), frame RMS `workspace/audio-envelope.json` with beat peaks
+and every `workspace/contact-sheet-*.png`. If probe prints "This reference
+cannot support exact cloning of fine detail", TELL THE USER before building.
+Use measured hexes — do not eyeball colors.
 
 Write:
 - `workspace/DESIGN.md` — exact palette hexes from probe, typography, texture, LUT.
@@ -203,6 +205,16 @@ and `motionBlurSamples: 1..4` for fast moves.
 **Custom scene escape hatch** — for exotic reference shots, hand-author
 `workspace/scenes/<name>.html` (full document or fragment) and reference it with
 `"customHtmlFile": "<name>.html"` (or inline `customCode: { html, css, js }`).
+Ultra injects `UltraEase`/`__ULTRA_AUDIO` at the TOP of `<head>` before your
+scripts (lint fails a script that reads them earlier). Never condense type with
+`transform: scaleX` — use a condensed font, `fontStretchPercent`, or
+`$ULTRA font-match <image> --text "…"`.
+
+Newer primitives: layer `mask` (rect/circle/polygon/svg-path, feather, invert),
+`blend: add|soft-light|hard-light|difference`, `parallaxDepth`, scene `guides` +
+element `anchor`, video-layer `inSec/rate/loop/objectFit`, and
+`videoMode: "frames"` for frame-exact video. SPEC §15 lists what Ultra cannot
+express (optical flow, true 3D, rotoscoping) — do not promise it.
 Your page may use raw HTML/CSS/SVG/Canvas/Three.js. Ultra injects:
 - `window.__ULTRA_SEEK(frame, fps)` — deterministic virtual clock (Ultra calls it).
 - `window.ultraRender(frame, fps, timeSec, progress, audio)` — implement this to

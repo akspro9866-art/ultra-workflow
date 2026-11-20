@@ -22,11 +22,12 @@ import json
 import math
 import os
 import random
+import re
 import subprocess
 import sys
 
 try:
-    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
     HAVE_PIL = True
 except Exception:  # pragma: no cover - ChatGPT containers have Pillow
     HAVE_PIL = False
@@ -179,6 +180,138 @@ class FontBook:
 
 
 # ---------------------------------------------------------------------------
+# [12] masks / [13] blend / [17] anchors & guides (parity with HyperFrames)
+# ---------------------------------------------------------------------------
+
+def mask_numbers(value):
+    return [float(part) for part in re.split(r"[,\s]+", value or "") if part.strip()]
+
+
+def build_mask(mask, W, H):
+    """Render a MaskSpec to an L-mode mask (feathered via GaussianBlur)."""
+    if not mask:
+        return None
+    kind = mask.get("type")
+    points = mask_numbers(mask.get("pointsOrPath"))
+    mask_img = Image.new("L", (W, H), 0)
+    draw = ImageDraw.Draw(mask_img)
+    if kind == "rect":
+        x = points[0] if len(points) > 0 else 0
+        y = points[1] if len(points) > 1 else 0
+        w = points[2] if len(points) > 2 else W
+        h = points[3] if len(points) > 3 else H
+        draw.rectangle([x, y, x + w, y + h], fill=255)
+    elif kind == "circle":
+        radius = points[0] if points else min(W, H) / 2
+        cx = float(mask.get("centerXPercent", 50)) / 100 * W
+        cy = float(mask.get("centerYPercent", 50)) / 100 * H
+        draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=255)
+    elif kind == "polygon":
+        coords = [(points[i], points[i + 1]) for i in range(0, len(points) - 1, 2)]
+        if len(coords) >= 3:
+            draw.polygon(coords, fill=255)
+    elif kind == "svg-path":
+        # Documented limitation: the SVG path parser is not bundled in py-canvas.
+        print("py-canvas: svg-path masks are unsupported in the browserless tier (documented)", file=sys.stderr)
+        mask_img = Image.new("L", (W, H), 255)
+    feather = float(mask.get("featherPx") or 0)
+    if feather > 0:
+        mask_img = mask_img.filter(ImageFilter.GaussianBlur(feather / 2))
+    if mask.get("invert"):
+        mask_img = Image.eval(mask_img, lambda v: 255 - v)
+    return mask_img
+
+
+def apply_layer_alpha(base, layer_img, mask=None, blend="normal"):
+    """Composite an RGBA layer onto base with optional mask + blend mode."""
+    if layer_img is None:
+        return
+    if mask is not None:
+        alpha = layer_img.getchannel("A")
+        layer_img.putalpha(ImageChops.multiply(alpha, mask))
+    if blend and blend != "normal":
+        base_rgb = base.convert("RGB")
+        layer_rgb = layer_img.convert("RGB")
+        mode = {
+            "add": ImageChops.add,
+            "screen": ImageChops.screen,
+            "multiply": ImageChops.multiply,
+            "difference": ImageChops.difference,
+            "overlay": getattr(ImageChops, "overlay", ImageChops.screen),
+            "soft-light": getattr(ImageChops, "soft_light", getattr(ImageChops, "overlay", ImageChops.screen)),
+            "hard-light": getattr(ImageChops, "hard_light", getattr(ImageChops, "overlay", ImageChops.screen)),
+        }.get(blend, ImageChops.screen)
+        blended = mode(base_rgb, layer_rgb).convert("RGBA")
+        blended.putalpha(layer_img.getchannel("A"))
+        base.alpha_composite(blended)
+        return
+    base.alpha_composite(layer_img)
+
+
+def guide_position(guide, t):
+    kfs = []
+    for kf in guide.get("keyframes") or []:
+        kfs.append({"atSec": kf.get("atSec", 0), "positionPx": kf.get("positionPx", 0), "ease": kf.get("easing", "easeInOutCubic")})
+    return float(sample_prop(kfs, "positionPx", t, 0) or 0)
+
+
+def resolve_positions(scene, t):
+    """[17] Resolve anchors before other transforms; [13] parallax compensation."""
+    elements = []
+    for layer in scene.get("layers") or []:
+        elements.append({"id": layer.get("id"), "x": float(layer.get("x", 0)), "y": float(layer.get("y", 0)), "anchor": layer.get("anchor"), "depth": float(layer.get("parallaxDepth") or 0)})
+    for el in scene.get("textElements") or []:
+        elements.append({"id": el.get("id"), "x": float(el.get("x", 0)), "y": float(el.get("y", 0)), "anchor": el.get("anchor"), "depth": 0.0})
+    base = {}
+    pos = {}
+    for element in elements:
+        x, y = element["x"], element["y"]
+        for track in scene.get("keyframes", []):
+            if track.get("target") != element["id"]:
+                continue
+            value = sample_track(track, t)
+            if track.get("property") == "x":
+                x = value
+            elif track.get("property") == "y":
+                y = value
+        base[element["id"]] = (x, y)
+        pos[element["id"]] = [x, y]
+    guides = scene.get("guides") or []
+    for _ in range(3):
+        for element in elements:
+            anchor = element["anchor"]
+            if not anchor or not anchor.get("to"):
+                continue
+            target = str(anchor.get("to"))
+            dx = float(anchor.get("dx") or 0)
+            dy = float(anchor.get("dy") or 0)
+            if target.startswith("guide:"):
+                gid = target[6:]
+                guide = next((g for g in guides if g.get("id") == gid), None)
+                if not guide:
+                    continue
+                gp = guide_position(guide, t)
+                if guide.get("orientation") == "v":
+                    pos[element["id"]] = [gp + dx, base[element["id"]][1] + dy]
+                else:
+                    pos[element["id"]] = [base[element["id"]][0] + dx, gp + dy]
+            elif target.startswith("layer:"):
+                tp = pos.get(target[6:])
+                if tp:
+                    pos[element["id"]] = [tp[0] + dx, tp[1] + dy]
+    # [13] parallax: layers lag the camera by depth * 0.5 pan.
+    cam_kfs = (scene.get("camera") or {}).get("keyframes") or []
+    pan_x = float(sample_prop(cam_kfs, "panX", t, 0) or 0) if cam_kfs else 0.0
+    pan_y = float(sample_prop(cam_kfs, "panY", t, 0) or 0) if cam_kfs else 0.0
+    for element in elements:
+        depth = element["depth"]
+        if depth > 0:
+            pos[element["id"]][0] -= pan_x * depth * 0.5
+            pos[element["id"]][1] -= pan_y * depth * 0.5
+    return pos
+
+
+# ---------------------------------------------------------------------------
 # Text layout
 # ---------------------------------------------------------------------------
 
@@ -227,11 +360,13 @@ def draw_shadow_text(draw, xy, text, font, fill, shadow=True):
     draw.text(xy, text, font=font, fill=fill)
 
 
-def text_boxes_for_element(scene, tokens, el, t, W, H, fonts):
+def text_boxes_for_element(scene, tokens, el, t, W, H, fonts, positions=None):
     """Compute laid-out text boxes (for rendering and linting)."""
     el_id = el["id"]
     base_x, base_y = el["x"], el["y"]
     x, y = base_x, base_y
+    if positions and el_id in positions:
+        x, y = positions[el_id][0], positions[el_id][1]
     opacity = 1.0
     scale = 1.0
     for track in scene.get("keyframes", []):
@@ -251,7 +386,13 @@ def text_boxes_for_element(scene, tokens, el, t, W, H, fonts):
     mode = reveal.get("mode", "none")
     size = el.get("sizePx", 48)
     bold = (el.get("weight") or 700) >= 600
-    font = fonts.get(el.get("font", "body"), bold, max(6, int(size * scale)))
+    font_spec = el.get("font", "body")
+    if isinstance(font_spec, dict):
+        print(f"py-canvas: custom font family '{font_spec.get('family')}' is not registered in the browserless tier (using fallback; documented)", file=sys.stderr)
+        font_spec = "body"
+    if el.get("fontStretchPercent") or el.get("fontVariationSettings"):
+        print("py-canvas: fontStretchPercent/fontVariationSettings are ignored (font lacks width axis; documented)", file=sys.stderr)
+    font = fonts.get(font_spec, bold, max(6, int(size * scale)))
     width = el.get("width") or max(100, W - x - 60)
     raw = text_tokens(el.get("text", ""), mode, bool(el.get("uppercase")))
     lines = wrap_lines(raw, font, width, mode)
@@ -267,10 +408,16 @@ def text_boxes_for_element(scene, tokens, el, t, W, H, fonts):
     return boxes, opacity, mode, reveal, size, scale
 
 
-def draw_text_element(base, draw, scene, tokens, el, t, W, H, fonts):
-    boxes, opacity, mode, reveal, size, scale = text_boxes_for_element(scene, tokens, el, t, W, H, fonts)
+def draw_text_element(base, draw, scene, tokens, el, t, W, H, fonts, positions=None):
+    boxes, opacity, mode, reveal, size, scale = text_boxes_for_element(scene, tokens, el, t, W, H, fonts, positions)
     if opacity <= 0.01:
         return
+    mask = build_mask(el.get("mask"), W, H) if el.get("mask") else None
+    target = base
+    target_draw = draw
+    if mask is not None:
+        target = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        target_draw = ImageDraw.Draw(target)
     color = hex_rgba(el.get("color", "#ffffff"), int(255 * clamp(opacity, 0, 1)))
     highlight = None
     if mode in ("chars", "words"):
@@ -278,15 +425,17 @@ def draw_text_element(base, draw, scene, tokens, el, t, W, H, fonts):
         count = max(1, len([b for b in boxes]))
         highlight = min(len(boxes) - 1, int(progress * len(boxes)))
     for idx, box in enumerate(boxes):
-        draw_shadow_text(draw, (box["x"], box["y"]), box["text"], box["font"], color, shadow=True)
+        draw_shadow_text(target_draw, (box["x"], box["y"]), box["text"], box["font"], color, shadow=True)
         if highlight is not None and idx == highlight:
             tw = box["font"].getlength(box["text"]) if HAVE_PIL else box["w"]
             pad = 10 * scale
             pill = [box["x"] - pad, box["y"] - pad * 0.2, box["x"] + box["w"] + pad, box["y"] + box["h"] + pad * 0.2]
             accent = hex_rgba((tokens.get("palette") or {}).get("accent") or list((tokens.get("palette") or {}).values() or ["#ffb703"])[0], 235)
-            draw.rounded_rectangle(pill, radius=int(12 * scale), fill=accent)
+            target_draw.rounded_rectangle(pill, radius=int(12 * scale), fill=accent)
             bg = hex_rgba(scene.get("background") if scene.get("background") != "transparent" else "#101820")
-            draw_shadow_text(draw, (box["x"], box["y"]), box["text"], box["font"], bg, shadow=False)
+            draw_shadow_text(target_draw, (box["x"], box["y"]), box["text"], box["font"], bg, shadow=False)
+    if mask is not None:
+        apply_layer_alpha(base, target, mask, "normal")
 
 
 # ---------------------------------------------------------------------------
@@ -679,23 +828,27 @@ class SourceReader:
             pass
 
 
-def draw_layer(base, draw, layer, assets, scene, tokens, t, W, H):
+def draw_layer(base, draw, layer, assets, scene, tokens, t, W, H, positions=None):
     ltype = layer.get("type")
     opacity = float(layer.get("opacity", 1))
     x, y = float(layer.get("x", 0)), float(layer.get("y", 0))
+    if positions and layer.get("id") in positions:
+        x, y = positions[layer.get("id")][0], positions[layer.get("id")][1]
     for track in scene.get("keyframes", []):
         if track.get("target") != layer.get("id"):
             continue
         value = sample_track(track, t)
         prop = track.get("property")
-        if prop == "x":
+        if prop == "x" and not (positions and layer.get("id") in positions):
             x = value
-        elif prop == "y":
+        elif prop == "y" and not (positions and layer.get("id") in positions):
             y = value
         elif prop == "opacity":
             opacity = value
     if opacity <= 0.01:
         return
+    mask = build_mask(layer.get("mask"), W, H) if layer.get("mask") else None
+    blend = layer.get("blend") or "normal"
     if ltype == "shape":
         w = float(layer.get("width") or W)
         h = float(layer.get("height") or H)
@@ -703,7 +856,9 @@ def draw_layer(base, draw, layer, assets, scene, tokens, t, W, H):
         radius = int(layer.get("radius", 0))
         if layer.get("glass"):
             color = (*color[:3], int(255 * 0.16 * opacity))
-        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=color)
+        layer_img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(layer_img).rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=color)
+        apply_layer_alpha(base, layer_img, mask, blend)
         return
     if ltype in ("grain", "vignette"):
         return
@@ -723,6 +878,11 @@ def draw_layer(base, draw, layer, assets, scene, tokens, t, W, H):
     if opacity < 1:
         alpha = img.getchannel("A").point(lambda a: int(a * opacity))
         img.putalpha(alpha)
+    if mask is not None or blend != "normal":
+        canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        canvas.alpha_composite(img, (int(x - (img.width - target_w) / 2), int(y - (img.height - target_h) / 2)))
+        apply_layer_alpha(base, canvas, mask, blend)
+        return
     base.alpha_composite(img, (int(x - (img.width - target_w) / 2), int(y - (img.height - target_h) / 2)))
 
 
@@ -787,6 +947,10 @@ def apply_clip_reveal(img, clip, t, W, H):
         d.polygon([(0, 0), (e * 1.4 * W, 0), (e * 1.4 * W - 0.4 * W, H), (0, H)], fill=255)
     else:
         d.rectangle([0, 0, W * e, H], fill=255)
+    if clip.get("mask"):
+        extra = build_mask(clip.get("mask"), W, H)
+        if extra is not None:
+            mask = ImageChops.multiply(mask, extra)
     out = img.copy()
     out.putalpha(Image.composite(img.getchannel("A"), Image.new("L", (W, H), 0), mask))
     return out
@@ -833,11 +997,12 @@ class RenderContext:
                 base.alpha_composite(frame.convert("RGBA"))
         if self.graph:
             draw_scene_graph(base, draw, self.graph, self.tokens, t, W, H)
+        positions = resolve_positions(scene, t)
         for layer in scene.get("layers", []):
-            draw_layer(base, draw, layer, self.assets, scene, self.tokens, t, W, H)
+            draw_layer(base, draw, layer, self.assets, scene, self.tokens, t, W, H, positions)
         draw_choreo(base, draw, scene, self.tokens, t, self.duration, W, H, self.fonts)
         for el in scene.get("textElements", []):
-            draw_text_element(base, draw, scene, self.tokens, el, t, W, H, self.fonts)
+            draw_text_element(base, draw, scene, self.tokens, el, t, W, H, self.fonts, positions)
         draw_captions(base, draw, self.captions, self.scene_start, t, W, H, self.fonts, self.tokens)
 
         if not lint_mode:
@@ -1039,7 +1204,7 @@ def main():
     fps = float(meta.get("fps", 30))
     duration = float(meta.get("durationSec", 1))
     alpha = bool(meta.get("alpha"))
-    samples = max(1, min(4, int(meta.get("motionBlurSamples", 1))))
+    samples = max(1, min(8, int(meta.get("motionBlurSamples", 1))))
     readers = {}
     clip = (bundle.get("scene") or {}).get("sourceClip")
     if clip:

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "builtAt": "2026-11-19T20:15:35.328Z",
+  "builtAt": "sha1:408876428061",
   "docs": [
     {
       "id": "style:dark-tech-launch",
@@ -197,7 +197,7 @@
       "title": "01-approval-gate",
       "path": ".ultra/rules/01-approval-gate.md",
       "aspect": null,
-      "text": "# 01 — Pre-Production Approval Gate (Process 2B ONLY)\r\n\r\n**Scope:** `edit-in-style` / Process 2B (\"Edit My Own Footage in Style\") ONLY.\r\n\r\n- Process 1 (`extract-style`) is **EXEMPT**: `style-probe` → distill → `style-validate` → `style-export` runs autonomously.\r\n- Process 2A (`clone-reference`) is **EXEMPT**: `probe` → `build --proxy` → `verify`/`ralph` → `render --4k` → `export-project` → `guard --stage delivery` runs autonomously.\r\n- Neither exempt process may be paused for a mood board, storyboard or `approve`.\r\n\r\n## Process 2B requirements\r\n1. `ultra plan-init --mode edit-in-style` creates `workspace/plan.json` + `PLAN.md`.\r\n2. `ultra preprod-render` must exist: `build/preprod/moodboard.png` and `build/preprod/storyboard*.png`.\r\n3. Show both images to the user and WAIT for explicit approval. Self-approval is forbidden.\r\n4. `ultra approve --by user` stores SHA-256(plan.json + ultra.json if present).\r\n5. `ultra build` / `ultra render` fail when the plan, moodboard/storyboard or matching unrevoked approval is missing/stale.\r\n6. `ultra guard --stage delivery` requires verified approval **only** for `edit-in-style`.\r\n7. `--skip-approval` is test-only; never use it in a user-facing 2B delivery. `--require-approval` can force the gate for any mode.\r\n",
+      "text": "# 01 — Pre-Production Approval Gate (Process 2B ONLY)\n\n**Scope:** `edit-in-style` / Process 2B (\"Edit My Own Footage in Style\") ONLY.\n\n- Process 1 (`extract-style`) is **EXEMPT**: `style-probe` → distill → `style-validate` → `style-export` runs autonomously.\n- Process 2A (`clone-reference`) is **EXEMPT**: `probe` → `build --proxy` → `verify`/`ralph` → `render --4k` → `export-project` → `guard --stage delivery` runs autonomously.\n- Neither exempt process may be paused for a mood board, storyboard or `approve`.\n\n## Process 2B requirements\n1. `ultra plan-init --mode edit-in-style` creates `workspace/plan.json` + `PLAN.md`.\n2. `ultra preprod-render` must exist: `build/preprod/moodboard.png` and `build/preprod/storyboard*.png`.\n3. Show both images to the user and WAIT for explicit approval. Self-approval is forbidden.\n4. `ultra approve --by user` stores SHA-256(plan.json + ultra.json if present).\n5. `ultra build` / `ultra render` fail when the plan, moodboard/storyboard or matching unrevoked approval is missing/stale.\n6. `ultra guard --stage delivery` requires verified approval **only** for `edit-in-style`.\n7. `--skip-approval` is test-only; never use it in a user-facing 2B delivery. `--require-approval` can force the gate for any mode.\n",
       "metadata": {
         "section": "rules"
       }
@@ -208,7 +208,7 @@
       "title": "02-anti-slop-motion",
       "path": ".ultra/rules/02-anti-slop-motion.md",
       "aspect": null,
-      "text": "# 02 — Anti-slop motion\r\n\r\n- Every cut must land on a beat, a word, or a measured hold; no random float.\r\n- Hooks resolve inside the style hook window; never open with a slow logo sting.\r\n- Punch-ins stay inside the style range; combine camera moves, never stack competing zooms.\r\n- Captions use active-word emphasis only; no full-sentence rainbow karaoke.\r\n- Palette colors come from DESIGN.md/plan.json only. No stock gradients, no template icons.\r\n- Grain, halation and halftone are texture, not haze: keep them under the style opacity caps.\r\n- Run the lint: clipping, contrast, palette, overlap and social safe-zone defects are release blockers.\r\n",
+      "text": "# 02 — Anti-slop motion\n\n- Every cut must land on a beat, a word, or a measured hold; no random float.\n- Hooks resolve inside the style hook window; never open with a slow logo sting.\n- Punch-ins stay inside the style range; combine camera moves, never stack competing zooms.\n- Captions use active-word emphasis only; no full-sentence rainbow karaoke.\n- Palette colors come from DESIGN.md/plan.json only. No stock gradients, no template icons.\n- Grain, halation and halftone are texture, not haze: keep them under the style opacity caps.\n- Run the lint: clipping, contrast, palette, overlap and social safe-zone defects are release blockers.\n",
       "metadata": {
         "section": "rules"
       }
@@ -219,7 +219,7 @@
       "title": "03-zero-hallucination",
       "path": ".ultra/rules/03-zero-hallucination.md",
       "aspect": null,
-      "text": "# 03 — Zero hallucination\r\n\r\n- Never mention a file, asset, font, style or artifact that is not on disk. `ultra guard` is the arbiter.\r\n- Never write placeholder copy into scenes or captions (Lorem ipsum, TBD, INSERT TEXT, [YOUR ...]).\r\n- Verify claims with `ffprobe`, `build/verify-report.json`, `build/delivery-manifest.json` and CI logs.\r\n- If a gate fails, report the failing check and next command; do not claim success.\r\n- Long chats: run `ultra status --json` and `ultra context-pack --stage <stage>` before acting.\r\n",
+      "text": "# 03 — Zero hallucination\n\n- Never mention a file, asset, font, style or artifact that is not on disk. `ultra guard` is the arbiter.\n- Never write placeholder copy into scenes or captions (Lorem ipsum, TBD, INSERT TEXT, [YOUR ...]).\n- Verify claims with `ffprobe`, `build/verify-report.json`, `build/delivery-manifest.json` and CI logs.\n- `verify-report.json notChecked[]` lists what the gate did NOT measure. Quote it; a PASS is not a claim that the film \"matches the reference\" unless `ultra verify <ref> --full` was run.\n- `stutterEvents` counts NEW stutter vs the reference's own holds, not every duplicate frame.\n- Declare `meta.method` honestly (`native|plate-replay|mixed`). Native projects must not use reference frames as assets; `guard` fails SHA-1/aHash reuse.\n- If a gate fails, report the failing check and next command; do not claim success.\n- Long chats: run `ultra status --json` and `ultra context-pack --stage <stage>` before acting.\n",
       "metadata": {
         "section": "rules"
       }
@@ -230,7 +230,7 @@
       "title": "04-4k-and-editable-delivery",
       "path": ".ultra/rules/04-4k-and-editable-delivery.md",
       "aspect": null,
-      "text": "# 04 — 4K and editable delivery\r\n\r\n- Iterate with `ultra build --proxy` (max 1280px) and verify the proxy. Draft speed never changes the delivery target.\r\n- Master with `ultra render --4k`; output must be exact 3840x2160 / 2160x3840 / 2160x2160, CFR yuv420p H.264 High@L5.1, AAC 48 kHz stereo 320k, -14 LUFS, +faststart.\r\n- `hybrid` is the default 4K strategy: high-quality lanczos + accurate rounding + full chroma + subtle unsharp; `native` requires a 4K build. The strategy is logged in `build/delivery-manifest.json`.\r\n- `ultra export-project` must produce FCPXML 1.10, OTIO JSON, project.ultra.json, DESIGN.md/Motion.md/PLAN.md, assets/scenes/fonts/motifs/grade, captions and a zero-CDN index.html — all with relative paths and CRC-verified zip.\r\n- `ultra guard --stage delivery` must pass before any delivery claim.\r\n",
+      "text": "# 04 — 4K and editable delivery\n\n- Iterate with `ultra build --proxy` (max 1280px) and verify the proxy. Draft speed never changes the delivery target.\n- Master with `ultra render --4k`; output must be exact 3840x2160 / 2160x3840 / 2160x2160, CFR yuv420p H.264 High@L5.1, AAC 48 kHz stereo 320k, -14 LUFS, +faststart.\n- `hybrid` is the default 4K strategy: high-quality lanczos + accurate rounding + full chroma + subtle unsharp; `native` requires a 4K build. The strategy is logged in `build/delivery-manifest.json`.\n- `ultra export-project` must produce FCPXML 1.10, OTIO JSON, project.ultra.json, DESIGN.md/Motion.md/PLAN.md, assets/scenes/fonts/motifs/grade, captions and a zero-CDN index.html — all with relative paths and CRC-verified zip.\n- `ultra guard --stage delivery` must pass before any delivery claim.\n",
       "metadata": {
         "section": "rules"
       }
@@ -241,7 +241,7 @@
       "title": "SKILL",
       "path": ".ultra/skills/clone-reference/SKILL.md",
       "aspect": null,
-      "text": "# Clone Reference Skill — Process 2A (autonomous, NO approval pause)\r\n\r\nNo `plan.json`, moodboard, storyboard, `approve` or approval wait belongs in this process.\r\n\r\n1. `ultra probe reference.mp4` — measure cuts, ASL, palettes, audio envelope.\r\n2. Author `DESIGN.md`, Motion.md and `ultra.json` replicating the reference; `ultra validate-spec`.\r\n3. `ultra asset-plan` -> native assets / `ultra synth-audio` -> `ultra validate-assets`.\r\n4. `ultra build --proxy` -> `ultra verify reference.mp4`; patch or `ultra ralph auto-fix` until `stutterEvents === 0` and lint passes.\r\n5. `ultra render --4k` -> exact 4K master + `delivery-manifest.json`.\r\n6. `ultra export-project` -> `ultra guard --stage delivery` -> deliver MP4 + editable project.\r\n",
+      "text": "# Clone Reference Skill — Process 2A (autonomous, NO approval pause)\r\n\r\nNo `plan.json`, moodboard, storyboard, `approve` or approval wait belongs in this process.\r\n\r\n1. `ultra probe reference.mp4 --geometry` — hard + soft cuts, geometry, palettes, audio envelope, `cloneFeasibility`. If it says the reference cannot support exact cloning, tell the user before building.\r\n2. Author `DESIGN.md`, Motion.md and `ultra.json` replicating the reference (declare `meta.method: \"native\"`); `ultra validate-spec`.\r\n3. `ultra asset-plan` -> native assets / `ultra synth-audio` -> `ultra validate-assets` (read the asset-similarity warnings BEFORE building).\r\n4. Iterate fast: `ultra preview --frame <N>` and `patch -> build --scene <id> -> verify --scene <id> <ref>`; then `ultra build --proxy` -> `ultra verify reference.mp4`; patch or `ultra ralph auto-fix` until NEW `stutterEvents === 0` and lint passes. Run `ultra verify reference.mp4 --full` before claiming a match; quote `notChecked[]`.\r\n5. `ultra render --4k` -> exact 4K master + `delivery-manifest.json`.\r\n6. `ultra export-project` -> `ultra guard --stage delivery` -> deliver MP4 + editable project.\r\n",
       "metadata": {
         "section": "clone-reference"
       }
@@ -252,7 +252,7 @@
       "title": "SKILL",
       "path": ".ultra/skills/edit-in-style/SKILL.md",
       "aspect": null,
-      "text": "# Edit In Style Skill — Process 2B (gated Stage 1)\r\n\r\n1. `ultra status --json`; `ultra style-list`; `ultra raw-probe my_video.mp4 --style <slug> --aspect <aspect>`.\r\n2. `ultra captions-align` from SRT/VTT/word JSON or script + envelope.\r\n3. **Stage 1 (mandatory):** `ultra plan-init --mode edit-in-style --style <slug>` -> storyboard sourceClip trims, punch-ins, captions, overlays -> `ultra preprod-render` -> show `moodboard.png` + `storyboard.png` -> WAIT for explicit user approval -> `ultra approve --by user`.\r\n4. **Stage 2:** `ultra build --proxy` -> `ultra verify --style <slug>` or `ultra ralph auto-fix` until `stutterEvents === 0`, style compliance and match >= 90.\r\n5. **Stage 3:** `ultra render --4k` -> `ultra export-project` -> `ultra guard --stage delivery`.\r\nBuild/render are hard-blocked until Stage 1 is approved with a matching hash.\r\n",
+      "text": "# Edit In Style Skill — Process 2B (gated Stage 1)\n\n1. `ultra status --json`; `ultra style-list`; `ultra raw-probe my_video.mp4 --style <slug> --aspect <aspect>`.\n2. `ultra captions-align` from SRT/VTT/word JSON or script + envelope.\n3. **Stage 1 (mandatory):** `ultra plan-init --mode edit-in-style --style <slug>` -> storyboard sourceClip trims, punch-ins, captions, overlays -> `ultra preprod-render` -> show `moodboard.png` + `storyboard.png` -> WAIT for explicit user approval -> `ultra approve --by user`.\n4. **Stage 2:** `ultra build --proxy` -> `ultra verify --style <slug>` or `ultra ralph auto-fix` until `stutterEvents === 0`, style compliance and match >= 90.\n5. **Stage 3:** `ultra render --4k` -> `ultra export-project` -> `ultra guard --stage delivery`.\nBuild/render are hard-blocked until Stage 1 is approved with a matching hash.\n",
       "metadata": {
         "section": "edit-in-style"
       }
@@ -263,7 +263,7 @@
       "title": "SKILL",
       "path": ".ultra/skills/extract-style/SKILL.md",
       "aspect": null,
-      "text": "# Extract Style Skill — Process 1 (autonomous, NO approval pause)\r\n\r\nNo `plan.json`, moodboard, storyboard, `approve` or approval wait belongs in this process.\r\n\r\n1. `ultra style-probe <1-10 videos> --out workspace/style-probe --hook-window 5`.\r\n2. Map-Reduce the 8 parameter groups into style.json (strict schema), STYLE.md, 2+ deterministic motifs and 2-8 exemplars.\r\n3. `ultra style-validate <dir>` until exit 0.\r\n4. `ultra style-export <dir> --out build/<slug>-style-pack.zip`.\r\n5. Deliver only the validated zip; Qoder imports it with `ultra style-import <zip> --repack`.\r\n",
+      "text": "# Extract Style Skill — Process 1 (autonomous, NO approval pause)\n\nNo `plan.json`, moodboard, storyboard, `approve` or approval wait belongs in this process.\n\n1. `ultra style-probe <1-10 videos> --out workspace/style-probe --hook-window 5`.\n2. Map-Reduce the 8 parameter groups into style.json (strict schema), STYLE.md, 2+ deterministic motifs and 2-8 exemplars.\n3. `ultra style-validate <dir>` until exit 0.\n4. `ultra style-export <dir> --out build/<slug>-style-pack.zip`.\n5. Deliver only the validated zip; Qoder imports it with `ultra style-import <zip> --repack`.\n",
       "metadata": {
         "section": "extract-style"
       }
@@ -274,7 +274,7 @@
       "title": "SKILL",
       "path": ".ultra/skills/preprod-storyboard/SKILL.md",
       "aspect": null,
-      "text": "# Pre-Production Storyboard Skill — Process 2B (`edit-in-style`) ONLY\r\n\r\nUse this skill **only when editing the user's own footage in a Style Pack**.\r\nProcess 1 (Extract Style) and Process 2A (Clone Reference) must NOT use this\r\npause and run autonomously end-to-end.\r\n\r\n1. `ultra plan-init --mode edit-in-style [--style <slug>] [--aspect 9:16|16:9|1:1] [--resolution 4k|1080p]`.\r\n2. Replace the template shot cards with the real measured concept, palette, type hierarchy, camera direction, caption text, engine and SFX for the sourceClip edit.\r\n3. `ultra preprod-render` -> `build/preprod/moodboard.png` + `storyboard*.png`.\r\n4. Inspect both PNGs; verify palette contrast, typography, shot timings and safe zones.\r\n5. Show them to the user, WAIT, then `ultra approve --by user`.\r\n6. If the plan or ultra.json changes: rerun preprod-render, re-show, re-approve.\r\n",
+      "text": "# Pre-Production Storyboard Skill — Process 2B (`edit-in-style`) ONLY\n\nUse this skill **only when editing the user's own footage in a Style Pack**.\nProcess 1 (Extract Style) and Process 2A (Clone Reference) must NOT use this\npause and run autonomously end-to-end.\n\n1. `ultra plan-init --mode edit-in-style [--style <slug>] [--aspect 9:16|16:9|1:1] [--resolution 4k|1080p]`.\n2. Replace the template shot cards with the real measured concept, palette, type hierarchy, camera direction, caption text, engine and SFX for the sourceClip edit.\n3. `ultra preprod-render` -> `build/preprod/moodboard.png` + `storyboard*.png`.\n4. Inspect both PNGs; verify palette contrast, typography, shot timings and safe zones.\n5. Show them to the user, WAIT, then `ultra approve --by user`.\n6. If the plan or ultra.json changes: rerun preprod-render, re-show, re-approve.\n",
       "metadata": {
         "section": "preprod-storyboard"
       }
@@ -285,7 +285,7 @@
       "title": "asset-producer",
       "path": ".ultra/agents/asset-producer.md",
       "aspect": null,
-      "text": "# Role — Asset Producer\r\n\r\nStage: assets. Inputs: approved plan, ultra.json, assets-todo.json.\r\nOutputs: workspace/assets/*, assets.manifest.json, synthesized WAVs.\r\nCommands: ultra asset-plan --host chatgpt; ultra synth-audio --from-assets; ultra validate-assets.\r\nContract: every referenced asset must exist and pass alpha/XML/duration checks. Parallelizable with director once plan.json is stable.\r\n",
+      "text": "# Role — Asset Producer\n\nStage: assets. Inputs: approved plan, ultra.json, assets-todo.json.\nOutputs: workspace/assets/*, assets.manifest.json, synthesized WAVs.\nCommands: ultra asset-plan --host chatgpt; ultra synth-audio --from-assets; ultra validate-assets.\nContract: every referenced asset must exist and pass alpha/XML/duration checks. Parallelizable with director once plan.json is stable.\n",
       "metadata": {
         "section": "agents"
       }
@@ -296,7 +296,7 @@
       "title": "director",
       "path": ".ultra/agents/director.md",
       "aspect": null,
-      "text": "# Role — Director (process-aware)\r\n\r\nBranch by active process mode (`ultra.json.meta.processMode`, state.json, or inferred artifacts):\r\n\r\n- **Process 1 `extract-style`:** no pre-prod gate. `style-probe` -> distill 8 groups -> `style-validate` -> `style-export`. Never request approval.\r\n- **Process 2A `clone-reference`:** no pre-prod gate. `probe` -> DESIGN/ultra.json -> `validate-spec` -> assets -> build/verify/ralph -> 4K/export/guard. Never request approval.\r\n- **Process 2B `edit-in-style`:** mandatory pre-prod. `plan-init --mode edit-in-style` -> `preprod-render` -> show moodboard.png + storyboard.png -> WAIT -> `approve --by user`. Build/render unlocked only on a matching hash.\r\n\r\nInputs: reference/raw footage, user intent, RAG hits.\r\nOutputs: for 2B only plan.json, PLAN.md, preprod PNGs, approval.json; for 1/2A style-probe pack or probe/ultra.json.\r\n",
+      "text": "# Role — Director (process-aware)\n\nBranch by active process mode (`ultra.json.meta.processMode`, state.json, or inferred artifacts):\n\n- **Process 1 `extract-style`:** no pre-prod gate. `style-probe` -> distill 8 groups -> `style-validate` -> `style-export`. Never request approval.\n- **Process 2A `clone-reference`:** no pre-prod gate. `probe` -> DESIGN/ultra.json -> `validate-spec` -> assets -> build/verify/ralph -> 4K/export/guard. Never request approval.\n- **Process 2B `edit-in-style`:** mandatory pre-prod. `plan-init --mode edit-in-style` -> `preprod-render` -> show moodboard.png + storyboard.png -> WAIT -> `approve --by user`. Build/render unlocked only on a matching hash.\n\nInputs: reference/raw footage, user intent, RAG hits.\nOutputs: for 2B only plan.json, PLAN.md, preprod PNGs, approval.json; for 1/2A style-probe pack or probe/ultra.json.\n",
       "metadata": {
         "section": "agents"
       }
@@ -318,7 +318,7 @@
       "title": "motion-builder",
       "path": ".ultra/agents/motion-builder.md",
       "aspect": null,
-      "text": "# Role — Motion Builder\r\n\r\nStage: build. Inputs: ultra.json, captions.json, assets, approved plan.\r\nOutputs: build/draft.mp4, build/build-manifest.json, build/scenes/*.\r\nCommands: ultra validate-spec; ultra build --proxy.\r\nContract: deterministic CFR, no banned transitions, captions inside safe zones. Runs after director + asset-producer handoff.\r\n",
+      "text": "# Role — Motion Builder\n\nStage: build. Inputs: ultra.json, captions.json, assets, approved plan.\nOutputs: build/draft.mp4, build/build-manifest.json, build/scenes/*.\nCommands: ultra validate-spec; ultra build --proxy.\nContract: deterministic CFR, no banned transitions, captions inside safe zones. Runs after director + asset-producer handoff.\n",
       "metadata": {
         "section": "agents"
       }
@@ -329,7 +329,7 @@
       "title": "qa-critic",
       "path": ".ultra/agents/qa-critic.md",
       "aspect": null,
-      "text": "# Role — QA Critic\r\n\r\nStage: verify/fix. Inputs: draft.mp4, audit frames, verify targets.\r\nOutputs: build/verify-report.json, patch history, ralph-state.json/history.\r\nCommands: ultra verify; ultra ralph auto-fix; ultra patch; ultra guard --stage verify.\r\nContract: stutterEvents must be 0; lint criticals 0; style compliance and match >= 90. Evidence only, no vibes.\r\n",
+      "text": "# Role — QA Critic\n\nStage: verify/fix. Inputs: draft.mp4, audit frames, verify targets.\nOutputs: build/verify-report.json, patch history, ralph-state.json/history.\nCommands: ultra verify; ultra ralph auto-fix; ultra patch; ultra guard --stage verify.\nContract: stutterEvents must be 0; lint criticals 0; style compliance and match >= 90. Evidence only, no vibes.\n",
       "metadata": {
         "section": "agents"
       }

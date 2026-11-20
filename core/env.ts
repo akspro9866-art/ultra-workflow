@@ -1,4 +1,5 @@
 import { promises as fs, readFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,6 +182,44 @@ async function detectGpu(): Promise<{ available: boolean; name: string | null }>
 
 export function engineWorkspaceDir(engine: "remotion" | "revideo"): string {
   return path.join(installRoot(), "engines", engine);
+}
+
+/**
+ * [3] Bundle provenance: pack-cloud embeds the packing commit in dist/ultra.mjs.
+ * sourceMatchesBundle compares it with the current git HEAD (false when there is
+ * no .git, e.g. inside the extracted cloud zip).
+ */
+export function bundleProvenance(): { bundleCommit: string | null; sourceMatchesBundle: boolean } {
+  let bundleCommit: string | null = null;
+  try {
+    const head = readFileSync(path.join(installRoot(), "dist", "ultra.mjs"), "utf8").slice(0, 4096);
+    const match = /ultra-bundle-commit:\s*([0-9a-f]{7,40})/.exec(head);
+    if (match?.[1]) bundleCommit = match[1];
+  } catch {
+    bundleCommit = null;
+  }
+  let gitHead: string | null = null;
+  try {
+    gitHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: installRoot(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    gitHead = null;
+  }
+  let sourceMatchesBundle = Boolean(bundleCommit && gitHead && bundleCommit === gitHead);
+  if (!sourceMatchesBundle && bundleCommit && gitHead && bundleCommit !== "unknown") {
+    // A dist-only follow-up commit is normal (the bundle must embed the commit
+    // before it can be committed). Treat "same source tree (excluding dist)" as
+    // a match so the provenance stays truthful without a self-reference loop.
+    try {
+      execFileSync("git", ["diff", "--quiet", bundleCommit, "HEAD", "--", ".", ":(exclude)dist"], {
+        cwd: installRoot(),
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      sourceMatchesBundle = true;
+    } catch {
+      sourceMatchesBundle = false;
+    }
+  }
+  return { bundleCommit, sourceMatchesBundle };
 }
 
 export async function detectOptionalEngine(engine: "remotion" | "revideo"): Promise<boolean> {
@@ -444,6 +483,15 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
     );
   }
   if (!cacheWritable) warnings.push(`.ultra-cache is not writable at ${path.join(process.cwd(), ".ultra-cache")} — renders will fail.`);
+  if (tierInfo.tier === "ffmpeg-only") {
+    warnings.push("ffmpeg-only tier has NO motion blur — motionBlurSamples is ignored by the pure-FFmpeg engine.");
+  }
+  const provenance = bundleProvenance();
+  if (!provenance.bundleCommit) {
+    warnings.push("dist/ultra.mjs has no bundle commit banner — run `npm run pack:cloud` to ship provenance.");
+  } else if (!provenance.sourceMatchesBundle) {
+    warnings.push(`dist/ultra.mjs commit ${provenance.bundleCommit} differs from the working tree HEAD (or no git metadata) — repack before shipping.`);
+  }
 
   return {
     ok: Boolean(ffmpegVersionLine && ffprobeVersionLine),
@@ -466,6 +514,8 @@ export async function detectEnvironment(host: "auto" | "gemini" | "muse" | "chat
     disk: { tmpFreeMb, workspaceFreeMb, tmpPath },
     fs: { homeWritable, cacheWritable },
     memory: { totalMb, estimatedPeakMbForProject },
+    bundleCommit: provenance.bundleCommit,
+    sourceMatchesBundle: provenance.sourceMatchesBundle,
     remotion: { installed: remotionInstalled },
     revideo: { installed: revideoInstalled },
     blender: { available: Boolean(blender), version: blender },

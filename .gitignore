@@ -11,6 +11,7 @@ __pycache__/
 # dist: only the zero-install runtime is tracked (clone → node dist/ultra.mjs)
 dist/*
 !dist/ultra.mjs
+!dist/ultra.mjs.map
 !dist/ultra
 !dist/run.sh
 !dist/ultra.cmd

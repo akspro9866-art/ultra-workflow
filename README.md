@@ -82,7 +82,7 @@ Ready-to-paste ChatGPT prompts: `prompts/CHATGPT_PROCESS1_EXTRACT_STYLE.txt`,
 |---|---|---|
 | `full-cdp` | Chromium/Chrome/Edge available | HyperFrames + Three.js + optional Remotion/Revideo + CDP screenshots (phases 1–8 unchanged) |
 | `browserless-py` | no browser (or `ULTRA_NO_BROWSER=1`) with Python 3 + Pillow + FFmpeg — standard ChatGPT container | `engines/py-canvas` renders deterministically with Pillow (easing, reveals, captions, sourceClip, chart/counter vectors, image Ken Burns, seeded grain, blender wireframe fallback) and pipes raw frames into FFmpeg; DOM lint becomes a Python layout linter; audit pairs compose via FFmpeg (no Chromium at all) |
-| `ffmpeg-only` | neither browser nor Pillow, or `ULTRA_FORCE_TIER=ffmpeg-only` | dedicated pure-FFmpeg engine (`engines/ffmpeg-only`): drawtext with bundled TTFs, drawbox, zoompan punch-ins, sourceClip trims, noise grain, color grade → valid CFR `yuv420p`/ProRes alpha; live-tested in phase10 |
+| `ffmpeg-only` | neither browser nor Pillow, or `ULTRA_FORCE_TIER=ffmpeg-only` | dedicated pure-FFmpeg engine (`engines/ffmpeg-only`): drawtext with bundled TTFs, drawbox, zoompan punch-ins, sourceClip trims, noise grain, color grade → valid CFR `yuv420p`/ProRes alpha; live-tested in phase10. **No motion blur and no masks in this tier** (logged, never silent) |
 
 In browserless ChatGPT containers use native **Image Generation** for stills and
 B-roll keyframes (`asset-plan --host chatgpt` flags them
@@ -97,6 +97,44 @@ Presets — SFX: `whoosh`, `whoosh-fast`, `sub-hit`, `riser`, `pop`, `ui-click`,
 `glitch-zap`, `shutter`, `swoosh-reverse`, `chime`; music: `beat-pulse`,
 `ambient-tech`, `minimal-tension`. Output is 48 kHz 16-bit stereo WAV with
 soft-clipped, dither-added broadcast levels.
+
+## v6.2 — Muse iteration loop + honest measurement
+
+- **Fast loop** — `ultra preview --frame <N>` renders ONE frame of the current
+  spec + the same reference frame (side-by-side + diff) without a full build;
+  `ultra preview --from F --to T` renders only that range. `ultra build --scene
+  <id>` renders ONE scene (+1s handles from the existing draft) and `ultra
+  verify --scene <id> <ref>` audits it (metrics + pairs + lint). Documented loop:
+  `patch → build --scene → verify --scene → build → verify → render`.
+- **Always-on contact sheet** — every build/preview rewrites
+  `build/contact-sheet.png` (no GUI).
+- **Sandbox pre-flight** — `doctor --json` reports `disk`, `fs` and `memory`
+  (estimated peak from width/height/fps/motionBlurSamples); `build` refuses a
+  project above 80% of RAM *before* frame 0. Temp scratch follows
+  `ULTRA_TMPDIR` → `workspace/.ultra-tmp` → `os.tmpdir()`.
+- **Browser discovery** — scans Playwright `headless_shell`/Chrome caches and
+  `HYPERFRAMES_BROWSER_PATH`, test-launches candidates, persists the working
+  path in `workspace/state.json` (`browserPath`).
+- **Measurement, not vibes** — probe adds soft cuts + frame numbers,
+  `--geometry` (lines/rects/text regions), per-scene motion scores, and a
+  `cloneFeasibility` warning ("this reference cannot support exact cloning…").
+  `validate-assets` reports SSIM/histogram/edge similarity to the reference
+  segment; `verify` compares jitter against the reference's own holds, adds
+  easing curve error, CIE76 colour round-trip, audio-sync offset, SFX-cue
+  warnings, per-method rubric expectations, and an honest `notChecked` list.
+  `verify --full` streams per-frame SSIM.
+- **Provenance** — `meta.method` (`native|plate-replay|mixed`, default native);
+  `guard` fails native projects that reuse reference frames as assets (SHA-1 +
+  8×8 aHash). `dist/ultra.mjs` embeds the packing commit and ships a source map;
+  `doctor` exposes `bundleCommit` + `sourceMatchesBundle`.
+- **New engine primitives** — masks (rect/circle/polygon/svg-path, feather,
+  invert) on layers and clipReveal; blend `add|soft-light|hard-light|difference`;
+  layer `parallaxDepth`; scene `guides` + element `anchor`; video-layer
+  `inSec/rate/loop/objectFit` + `videoMode: "frames"`; `motionBlurSamples` up to
+  8; text `{family}` fonts, `fontStretchPercent`, `fontVariationSettings`;
+  `ultra font-match <image>` ranks offline font candidates.
+  SPEC §15 lists what Ultra **cannot** express — optical flow, true 3D,
+  rotoscoping — so agents stop promising them.
 
 ## v6.1 — process-scoped approval gate
 
@@ -198,7 +236,7 @@ ultra render --4k && ultra export-project && ultra guard --stage delivery
   Each ships `style.json`, `STYLE.md`, 2 bespoke deterministic motifs and 3 exemplar
   PNGs rendered through Ultra Workflow itself (640px wide).
 - **GitHub Actions CI on `ubuntu-latest`** — LF guard, typecheck, cloud pack + zip
-  integrity/size, all Style Packs, all 10 TS suites + Python, zero-API scan, and the
+  integrity/size, all Style Packs, all 14 TS suites + Python, zero-API scan, and the
   cloud zip uploaded as a downloadable artifact (30 days).
 
 ```bash
@@ -227,7 +265,7 @@ cloud-native via `engine: "revideo"` + `enginePayload.sceneType`
 ```bash
 npm install
 npm run typecheck
-npm test                 # all 11 TS suites + Python mock-bpy Blender test
+npm test                 # all 14 TS suites + Python mock-bpy Blender test
 npm run test:python      # py_compile + tests/test_blender_script.py
 npm run pack:cloud       # → dist/ultra.mjs + rag-index.json + cloud zip (≤ 2.5 MiB, LF)
 ```
@@ -260,6 +298,9 @@ npm run setup:engines
 | phase9 | **ChatGPT container simulation**: zero-install zip + `ULTRA_NO_BROWSER=1` → `renderTier: browserless-py` → synth-audio WAVs (ffprobe 48k/2ch) → py-canvas multi-scene build (sourceClip + kinetic title + revideo chart + alpha wireframe) → verify (stutterEvents 0, ffmpeg audit pairs) → render |
 | phase10 | **production hardening**: bundled fonts in zip with zero CRLF scripts, all 3 built-in packs validate, SRT + forced-alignment captions with 9:16 safe zones + danger-zone lint, live `ULTRA_FORCE_TIER=ffmpeg-only` build/verify/render, `status --json` stage tracking |
 | phase11 | **studio harness + process-scoped gate**: BM25 RAG + context-pack budget + guard grounding failures; **2B** moodboard/storyboard blocks build+render until approval then succeeds; **2A** build/verify/4K/export/delivery-guard with no plan or approval and status never waits; **Process 1** style-probe → validate → export with no approval; Ralph self-heal; 4K FCPXML/OTIO/editable zip; isolated zero-install rag/context/preprod-render |
+| phase12 | **Muse iteration loop**: customHtmlFile cache hashing, video-stream duration validation, preview one-frame/range, build --scene / verify --scene, always-on contact sheet, Playwright headless_shell discovery + persisted browserPath, ultraTmpDir, doctor disk/fs/memory preflight, asset similarity, clone feasibility |
+| phase13 | **measurement honesty**: soft cuts, geometry, source annotations, jitter-vs-reference holds, verify --full, method/plate guard, notChecked + scored sections + easing curves, scene-anchored SFX cues, audio sync, audio origin labels, CIE76 colour round-trip |
+| phase14 | **engine expressiveness**: UltraEase prelude order + runtime lint, video inSec/rate/loop + frames mode, motion blur 8 + py-canvas parity, masks, blend/parallax, font-match, font-stretch/scaleX lint, guides/anchors, bundle provenance |
 | Python | `tests/test_blender_script.py` — mock-bpy end-to-end pipeline |
 
 ## Outputs

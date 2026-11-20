@@ -14,6 +14,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dist-check:
+    name: dist bundle reproducible
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci
+      - name: Rebuild the cloud bundle
+        run: npm run pack:cloud
+      - name: Fail if committed dist differs
+        # The zip is excluded: store timestamps/compression bytes are not stable
+        # across runs. The bundle-commit banner is excluded because a rebuild
+        # necessarily embeds the commit being built (self-reference). Everything
+        # else in ultra.mjs, the source map and the deterministic RAG index must
+        # be byte-identical.
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const cp = require('child_process');
+          const LF = String.fromCharCode(10);
+          const strip = (s) => {
+            const cut = s.indexOf(LF);
+            return cut >= 0 && s.startsWith('/* ultra-bundle-commit:') ? s.slice(cut + 1) : s;
+          };
+          const fresh = strip(fs.readFileSync('dist/ultra.mjs', 'utf8'));
+          const committed = strip(cp.execFileSync('git', ['show', 'HEAD:dist/ultra.mjs'], { encoding: 'utf8' }));
+          if (fresh !== committed) {
+            console.error('dist/ultra.mjs differs beyond the bundle-commit banner');
+            process.exit(1);
+          }
+          console.log('ultra.mjs reproducible (banner excluded)');
+          NODE
+          git diff --exit-code -- dist/ultra.mjs.map dist/rag-index.json
+
   linux-studio:
     name: Linux studio (all render tiers)
     runs-on: ubuntu-latest

@@ -54,10 +54,42 @@ export const CameraRig = z.object({
   keyframes: z.array(CameraKeyframe).default([]),
 });
 
+export const MaskSpec = z.object({
+  type: z.enum(["rect", "circle", "polygon", "svg-path"]),
+  /** rect: "x,y,w,h"; circle: radius px; polygon: "x1,y1 x2,y2 ..."; svg-path: SVG `d`. */
+  pointsOrPath: z.string().default(""),
+  featherPx: z.number().min(0).max(200).default(0),
+  invert: z.boolean().default(false),
+  centerXPercent: z.number().min(0).max(100).default(50),
+  centerYPercent: z.number().min(0).max(100).default(50),
+});
+
+export const AnchorSpec = z.object({
+  to: z.string().min(1), // "guide:<id>" | "layer:<id>"
+  dx: z.number().default(0),
+  dy: z.number().default(0),
+});
+
+export const GuideSpec = z.object({
+  id: z.string().min(1),
+  orientation: z.enum(["v", "h"]),
+  keyframes: z
+    .array(
+      z.object({
+        atSec: z.number().min(0),
+        positionPx: z.number(),
+        easing: EasingName.default("easeInOutCubic"),
+      }),
+    )
+    .min(1),
+});
+
 export const ClipRevealSpec = z.object({
   type: z.enum(["none", "wipe", "iris", "diagonal"]).default("none"),
   durationSec: z.number().positive().max(5).default(0.7),
   delaySec: z.number().min(0).max(30).default(0),
+  /** [12] Optional feathered mask shaping the reveal. */
+  mask: MaskSpec.optional(),
 });
 
 export const CustomCode = z.object({
@@ -123,11 +155,22 @@ export const LayerSpec = z
     opacity: z.number().min(0).max(1).default(1),
     rotation: z.number().default(0),
     radius: z.number().min(0).default(0),
-    blend: z.enum(["normal", "screen", "overlay", "multiply"]).default("normal"),
+    blend: z.enum(["normal", "screen", "overlay", "multiply", "add", "soft-light", "hard-light", "difference"]).default("normal"),
     glass: z.boolean().default(false),
     svgDraw: z.boolean().default(false),
     drawDelaySec: z.number().min(0).max(30).default(0),
     drawDurationSec: z.number().positive().max(30).default(1.2),
+    /** [10] Video layer parity with sourceClip (video layers only). */
+    inSec: z.number().min(0).default(0),
+    rate: z.number().min(0.25).max(4).default(1),
+    loop: z.boolean().default(false),
+    objectFit: z.enum(["cover", "contain"]).default("cover"),
+    /** [12] Optional per-layer mask. */
+    mask: MaskSpec.optional(),
+    /** [13] 2.5D parallax separation (0 = glued to the camera, 1 = half pan). */
+    parallaxDepth: z.number().min(0).max(1).default(0),
+    /** [17] Anchor this layer to a guide or another layer. */
+    anchor: AnchorSpec.optional(),
   })
   .superRefine((layer, ctx) => {
     if (["image", "video", "svg", "png_alpha"].includes(layer.type) && !layer.assetId) {
@@ -146,10 +189,15 @@ export const LayerSpec = z
     }
   });
 
+export const TextFont = z.union([
+  z.enum(["heading", "body", "mono"]),
+  z.object({ family: z.string().min(1) }),
+]);
+
 export const TextElementSpec = z.object({
   id: z.string().min(1),
   text: z.string(),
-  font: z.enum(["heading", "body", "mono"]).default("body"),
+  font: TextFont.default("body"),
   sizePx: z.number().positive(),
   color: HexColor,
   x: z.number(),
@@ -161,6 +209,13 @@ export const TextElementSpec = z.object({
   lineHeight: z.number().positive().default(1.2),
   uppercase: z.boolean().default(false),
   reveal: RevealSpec.default({}),
+  /** [15] Honest condensing: never by transform: scaleX. */
+  fontStretchPercent: z.number().min(50).max(200).optional(),
+  fontVariationSettings: z.string().optional(),
+  /** [12] Optional text mask. */
+  mask: MaskSpec.optional(),
+  /** [17] Anchor this text element to a guide or layer. */
+  anchor: AnchorSpec.optional(),
 });
 
 export const EffectSpec = z.object({
@@ -191,10 +246,14 @@ export const SceneSpec = z
     enginePayload: z.record(z.unknown()).default({}),
     customHtmlFile: z.string().optional(),
     customCode: CustomCode.optional(),
-    motionBlurSamples: z.number().int().min(1).max(4).default(1),
+    motionBlurSamples: z.number().int().min(1).max(8).default(1),
     camera: CameraRig.default({}),
     clipReveal: ClipRevealSpec.default({}),
     sourceClip: SourceClipSpec.optional(),
+    /** [10] "seek" (default, compatible) or "frames" (FFmpeg PNG sequence). */
+    videoMode: z.enum(["seek", "frames"]).default("seek"),
+    /** [17] Scene-level guides that layers/text can anchor to. */
+    guides: z.array(GuideSpec).default([]),
     /** Optional workspace-relative captions JSON (default: workspace/captions.json on sourceClip scenes). */
     captionsFile: z.string().optional(),
     /**
@@ -577,6 +636,7 @@ export const DefectCategory = z.enum([
   "blankFrame",
   "palette",
   "layout",
+  "runtime",
 ]);
 
 export const LintDefect = z.object({
@@ -840,6 +900,9 @@ export const DoctorReport = z.object({
       estimatedPeakMbForProject: z.number(),
     })
     .default({ totalMb: 0, estimatedPeakMbForProject: 0 }),
+  /** [3] Commit embedded by scripts/pack-cloud.ts and whether it matches HEAD. */
+  bundleCommit: z.string().nullable().default(null),
+  sourceMatchesBundle: z.boolean().default(false),
   remotion: z.object({ installed: z.boolean() }),
   revideo: z.object({ installed: z.boolean() }),
   blender: z.object({ available: z.boolean(), version: z.string().nullable() }),

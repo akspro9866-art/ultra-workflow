@@ -105,14 +105,21 @@ Per-run concatenation + `xfade` joins, alpha `overlay` compositing, grade chain
 - `lint`: per-scene defects (clip/overlap/contrast/brokenMedia/blankFrame/palette/layout).
 - `visualPairs`: labeled `build/audit-frames/pair_XX.png` + per-pair SSIM.
 - `sceneSimilarity[]`: `{index, timestampSec, sceneId, ssim, mae}` per matched pair.
-- `rubric`: 5 categories × 4 items × 5 pts; agent fills checks/scores (≥90).
+- `rubric`: 5 categories × 4 items × 5 pts; agent fills checks/scores (≥90). Per-method `expectation` strings (native / plate-replay / mixed) — never one comparable number.
+- `method` (`native|plate-replay|mixed`, default native): printed in every report; `guard` fails a `native` project whose asset is the reference file (SHA-1) or matches a reference frame (8×8 aHash ≤ 6; documented limit: small arbitrary crops are not reliably caught).
+- `jitterDraft` / `jitterReference` / `jitterUnmatchedEvents`: stutter is only a defect when it is NOT present in the reference (±3 frames).
+- `assetSimilarity[]` (SSIM + colour histogram + edge-density vs the target reference segment), `fontCheck`, `easing[]` (motion-curve error px), `colour[]` (CIE76 ΔE round-trip per palette colour), `audioSyncOffsetMs`, `sfxWarnings[]`.
+- `notChecked[]`: everything the gate did NOT verify. A PASS with a long list is the honest output. A claim of "matches reference" requires `ultra verify <ref> --full` (per-frame SSIM; thumbnails of the five worst pairs under `build/audit-frames/worst_*.png`).
 
 ## 8. Cache
 
 `.ultra-cache/renders/<sha1>.{mp4,mov}` keyed over scene JSON + tokens + grade +
-fps/size + render duration + referenced asset bytes + resolved engine; patches
-invalidate only targeted scenes. Render-time fallbacks are stored under the
-HyperFrames key so a later working native engine is never masked.
+fps/size + render duration + referenced asset bytes + resolved engine + the
+**contents of any `customHtmlFile`** (so editing only the HTML invalidates that
+scene and nothing else); patches invalidate only targeted scenes. Render-time
+fallbacks are stored under the HyperFrames key so a later working native engine
+is never masked. `videoMode:"frames"` sequences live in
+`.ultra-cache/video-frames/<sha1>/`.
 
 ## 9. Packaging & proof
 
@@ -123,7 +130,7 @@ fresh `os.tmpdir()` folder with **zero node_modules**, runs `doctor.json`, a
 real multi-scene build (bespoke custom HTML + vector choreography + Three.js
 alpha overlay + HyperFrames outro), `verify` (asserting `stutterEvents === 0`),
 and `render` to a playable `yuv420p` CFR MP4. `tests/test_blender_script.py`
-(mock-bpy) runs under `npm test` together with the 7 TypeScript suites.
+(mock-bpy) runs under `npm test` together with the 14 TypeScript suites.
 
 ## 10. v3 — Dual-process style system
 
@@ -277,7 +284,7 @@ cloud zip and are valid `--style` targets immediately.
 
 **CI.** `.github/workflows/ci.yml` runs on `ubuntu-latest` (Node 20, Python 3.11,
 FFmpeg, Chromium/Pillow/numpy): LF guard → typecheck → `pack:cloud` with zip
-size/integrity/font/style assertions → validate every `styles/*/` → all 10 TS
+size/integrity/font/style assertions → validate every `styles/*/` → all 14 TS
 suites + Python → zero-AI-SDK/zero-secret scan → upload the cloud zip artifact
 (30-day retention). Badge:
 `https://github.com/akspro9866-art/ultra-workflow/actions/workflows/ci.yml/badge.svg`.
@@ -390,3 +397,31 @@ command that never waits for approval**; **Process 1 style-probe → validate �
 export with no plan/approval**; Ralph self-heal trajectory; exact 4K master with
 AAC 48k stereo + FCPXML/OTIO/editable zip; and isolated zero-install
 rag/context/preprod-render.
+
+## 15 · Cannot express (be honest with the user)
+
+Ultra's engines are deterministic 2D/2.5D compositors. These are **not**
+implemented and agents must not promise them:
+- optical-flow retiming / frame interpolation;
+- true 3D camera moves, perspective geometry, or parallax from depth maps (the
+  camera rig is a 2.5D CSS/Pillow pan/zoom/rotate; `parallaxDepth` only slows a
+  layer's pan);
+- rotoscoping / matte extraction from footage;
+- plate replay for `native` projects (reference frames are for measurement only;
+  guard blocks SHA-1/aHash reuse).
+
+Also documented as partial: SVG-path masks and feathered masks are HyperFrames/
+py-canvas only; `ffmpeg-only` supports neither masks nor motion blur. Font
+stretch/variation is honored by the browser engine; py-canvas logs it as ignored.
+
+## 16 · v6.2 Muse iteration loop
+
+`ultra preview --frame <N>` / `--from F --to T` (full-cdp, side-by-side + diff,
+never a full build); `ultra build --scene <id>` renders ONE scene + 1s handles
+from the existing draft; `ultra verify --scene <id> <ref>` audits metrics,
+pairs and lint for that scene only. Every build/preview refreshes
+`build/contact-sheet.png`. `ultra probe --geometry` writes
+`workspace/geometry.json` (lines/rects/text regions). `ultra probe` also writes
+`cloneFeasibility` (score, bitrate/pixel, text legibility, sharpness) and a
+documented `containsRealRecording` heuristic. `ultra font-match <image>
+[--candidates dir] [--text text]` ranks fonts offline.

@@ -23,6 +23,7 @@ import { buildAssetSimilaritySection, buildFontCheckSection, buildNotCheckedList
 import { colourRoundTrip } from "../verifier/colour.js";
 import { fullFrameAudit } from "../verifier/full-audit.js";
 import { measureAudioSync, sfxSyncWarnings } from "../core/audio-sync.js";
+import { fontMatch } from "../core/font-match.js";
 import { styleProbe } from "../core/style-probe.js";
 import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
 import { loadStylePack, rawProbe } from "../core/raw-probe.js";
@@ -198,6 +199,7 @@ program
       console.log(`  disk        tmp ${report.disk.tmpFreeMb ?? "?"} MB free (${report.disk.tmpPath}) · workspace ${report.disk.workspaceFreeMb ?? "?"} MB free`);
       console.log(`  fs          home ${report.fs.homeWritable ? "writable" : "NOT writable"} · .ultra-cache ${report.fs.cacheWritable ? "writable" : "NOT writable"}`);
       console.log(`  memory      ${report.memory.totalMb} MB total · ~${report.memory.estimatedPeakMbForProject} MB estimated peak for this project`);
+      console.log(`  bundle      ${report.bundleCommit ?? "no commit banner"} · sourceMatchesBundle ${report.sourceMatchesBundle}`);
       console.log(`  remotion    ${report.remotion.installed ? "installed" : "optional — not installed"}`);
       console.log(`  revideo     ${report.revideo.installed ? "installed" : "optional — not installed"}`);
       console.log(`  blender     ${report.blender.version ?? "not found (py-canvas/Three.js fallback)"}`);
@@ -363,8 +365,13 @@ program
 
     // [24] meta.durationSec must come from the VIDEO stream, not container/audio
     // length. One frame of mismatch makes verify sample a non-existent frame.
-    const source = await resolveSourceVideoPath(workspace, project.meta.sourceVideoPath);
-    if (!source) {
+    // Process 2B edits LONGER raw footage: the timeline duration is the edit,
+    // not the source, so the check is 2A-only (no sourceClip scenes).
+    const isEditInStyle = project.meta.processMode === "edit-in-style" || project.scenes.some((scene) => Boolean(scene.sourceClip));
+    const source = isEditInStyle ? null : await resolveSourceVideoPath(workspace, project.meta.sourceVideoPath);
+    if (isEditInStyle) {
+      console.log("  duration  edit-in-style sourceClip project — timeline duration is the edit, source duration check skipped");
+    } else if (!source) {
       console.log(
         `  warning   meta.sourceVideoPath "${project.meta.sourceVideoPath}" not found (checked cwd + workspace) — duration not measured`,
       );
@@ -693,7 +700,14 @@ program
     const assetSimilarity = await buildAssetSimilaritySection(project, workspace);
     const fontCheck = await buildFontCheckSection(project, workspace);
     const easing = await measureEasingCurves(ref, draft, project);
-    const colour = await colourRoundTrip(project, workspace, buildDir);
+    let colour: Awaited<ReturnType<typeof colourRoundTrip>>;
+    let colourError: string | null = null;
+    try {
+      colour = await colourRoundTrip(project, workspace, buildDir);
+    } catch (err) {
+      colour = undefined;
+      colourError = `colour round-trip unavailable in this render tier (${(err as Error).message.split("\n")[0]})`;
+    }
     const audioSync = await measureAudioSync(ref, draft);
     const sfxWarnings = await sfxSyncWarnings(project, workspace);
     let fullAudit: VerifyReportT["fullAudit"];
@@ -707,6 +721,7 @@ program
       hasReference: true,
       fontMatched: false,
     });
+    if (colourError) notChecked.push(colourError);
 
     const report: VerifyReportT = {
       version: 1,
@@ -1107,6 +1122,23 @@ program
     console.log(
       `  preset ${result.preset} · ${result.durationSec}s · 48kHz stereo · ${(result.bytes / 1024).toFixed(1)} KiB · peak ${result.peakDb.toFixed(1)} dBFS · rms ${result.rmsDb.toFixed(1)} dBFS`,
     );
+  });
+
+program
+  .command("font-match <image>")
+  .description("[14] rank candidate fonts offline against an image (bundled + workspace + --candidates)")
+  .option("--candidates <dir>", "extra font directory to scan")
+  .option("--text <text>", "the image's text (enables SSIM letterform comparison)")
+  .action(async (image: string, options: { candidates?: string; text?: string }) => {
+    const img = path.resolve(image);
+    if (!(await pathExists(img))) throw new CliError(`font-match: image not found: ${img}`);
+    const results = await fontMatch(img, {
+      ...(options.candidates ? { candidatesDir: options.candidates } : {}),
+      ...(options.text ? { text: options.text } : {}),
+      workspace: paths().workspace,
+    });
+    console.log(JSON.stringify(results, null, 2));
+    if (results.length === 0) process.exitCode = 1;
   });
 
 program

@@ -10,8 +10,93 @@ import { resolveAspectProfile } from "../../core/safe-zones.js";
 import { resolveAssetPath, resolveSourceClipPath } from "../../core/assets.js";
 import { ffprobeJson } from "../../core/ffmpeg.js";
 
-const CRITICAL = new Set(["clip", "brokenMedia", "blankFrame", "palette"]);
+const CRITICAL = new Set(["clip", "brokenMedia", "blankFrame", "palette", "runtime"]);
 const AUDIT_FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
+
+async function customSceneSource(scene: LintContext["scene"], workspace: string): Promise<string> {
+  if (scene.customHtmlFile) {
+    try {
+      return await fs.readFile(path.resolve(workspace, "scenes", scene.customHtmlFile), "utf8");
+    } catch {
+      return "";
+    }
+  }
+  if (scene.customCode) return `${scene.customCode.html}\n<style>${scene.customCode.css}</style>\n<script>${scene.customCode.js}</script>`;
+  return "";
+}
+
+/**
+ * [9] A user script that reads UltraEase/__ULTRA_AUDIO BEFORE the <head>
+ * injection point would capture undefined. [15] scaleX on text distorts
+ * letterforms — warn and point at fontStretchPercent / font-match.
+ */
+function staticCustomChecks(source: string): { category: LintDefectT["category"]; detail: string; critical: boolean }[] {
+  const defects: { category: LintDefectT["category"]; detail: string; critical: boolean }[] = [];
+  if (!source) return defects;
+  const readsPrelude = /UltraEase|__ULTRA_AUDIO/.test(source);
+  if (readsPrelude) {
+    const scriptMatch = /<script\b[^>]*>[\s\S]*?(?:UltraEase|__ULTRA_AUDIO)[\s\S]*?<\/script>/i.exec(source);
+    if (scriptMatch) {
+      const headMatch = /<head[^>]*>/i.exec(source);
+      const anchor = headMatch ? headMatch.index + headMatch[0].length : (/<html[^>]*>/i.exec(source)?.index ?? 0);
+      if (scriptMatch.index < anchor) {
+        defects.push({
+          category: "runtime",
+          critical: true,
+          detail:
+            "custom scene reads UltraEase/__ULTRA_AUDIO in a <script> before <head>; the motion prelude is injected at the top of <head>, so this captures undefined. Move the code inside window.ultraRender(frame, fps, timeSec, progress, audio) or after <head>.",
+        });
+      }
+    }
+  }
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = ruleRe.exec(source)) !== null) {
+    const selector = (match[1] ?? "").trim();
+    const body = match[2] ?? "";
+    if (!/transform[^;]*scaleX\s*\(/i.test(body)) continue;
+    const selectorNames = [...selector.matchAll(/\.([\w-]+)/g)].map((m) => m[1] ?? "");
+    const textish =
+      selectorNames.some((name) => /text|title|headline|heading|label|caption|subtitle|h[1-6]$/i.test(name)) ||
+      selectorNames.some((name) => new RegExp(`class=["'][^"']*${name}[^"']*["'][^>]*data-audit=["']text`, "i").test(source));
+    if (textish) {
+      defects.push({
+        category: "layout",
+        critical: false,
+        detail: `custom scene CSS condenses text with transform: scaleX (${selector}); this distorts letterforms — use a condensed font, fontStretchPercent, or \`ultra font-match\`.`,
+      });
+    }
+  }
+  return defects;
+}
+
+/** [17] Warn when an unanchored element visually tracks a guide (simple ±12px heuristic). */
+function guideOverlapDefects(scene: LintContext["scene"]): { category: LintDefectT["category"]; detail: string; critical: boolean }[] {
+  const defects: { category: LintDefectT["category"]; detail: string; critical: boolean }[] = [];
+  const guides = scene.guides ?? [];
+  if (guides.length === 0) return defects;
+  const elements = [
+    ...scene.layers.map((layer) => ({ id: layer.id, x: layer.x, y: layer.y, anchored: Boolean(layer.anchor) })),
+    ...scene.textElements.map((text) => ({ id: text.id, x: text.x, y: text.y, anchored: Boolean(text.anchor) })),
+  ];
+  for (const element of elements) {
+    if (element.anchored) continue;
+    for (const guide of guides) {
+      const positions = guide.keyframes.map((kf) => kf.positionPx);
+      const near = guide.orientation === "v"
+        ? positions.some((pos) => Math.abs(pos - element.x) <= 12)
+        : positions.some((pos) => Math.abs(pos - element.y) <= 12);
+      if (near) {
+        defects.push({
+          category: "layout",
+          critical: false,
+          detail: `element "${element.id}" runs along guide "${guide.id}" but is not anchored (simple ±12px overlap heuristic) — set anchor: { to: "guide:${guide.id}" } so it tracks`,
+        });
+      }
+    }
+  }
+  return defects;
+}
 
 interface RawDefect {
   category: string;
@@ -274,6 +359,16 @@ export async function lintScene(ctx: LintContext): Promise<LintResult> {
         detail: `${check.id} is not decodable: ${(err as Error).message.split("\n")[0]}`,
       });
     }
+  }
+
+  // [9] prelude ordering + [15] scaleX-text checks; [17] guide/anchor heuristic.
+  if (scene.customHtmlFile || scene.customCode) {
+    for (const defect of staticCustomChecks(await customSceneSource(scene, workspace))) {
+      defects.push({ ...defect, sceneId: scene.id, frameIndex: 0 });
+    }
+  }
+  for (const defect of guideOverlapDefects(scene)) {
+    defects.push({ ...defect, sceneId: scene.id, frameIndex: 0 });
   }
 
   const page = await newPage(width, height);

@@ -161,7 +161,7 @@ export const pyCanvasEngine: SceneEngine = {
       const parsed = JSON.parse(stdout.trim().split(/\r?\n/).pop() ?? "{\"defects\":[]}") as {
         defects?: { category?: string; detail?: string; frameIndex?: number; critical?: boolean }[];
       };
-      const allowed = new Set(["clip", "overlap", "contrast", "brokenMedia", "blankFrame", "palette", "layout"]);
+      const allowed = new Set(["clip", "overlap", "contrast", "brokenMedia", "blankFrame", "palette", "layout", "runtime"]);
       const defects: LintDefectT[] = (parsed.defects ?? []).map((d) => ({
         category: (allowed.has(d.category ?? "") ? d.category : "layout") as LintDefectT["category"],
         sceneId: ctx.scene.id,

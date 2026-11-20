@@ -15,15 +15,22 @@ Applies to Qoder, Google Gemini, Meta Muse, ChatGPT, Codex, Claude and any futur
 
 ## Delivery workflow
 1. Assets (native tools or `ultra synth-audio`) -> `ultra validate-assets` (2A/2B).
-2. `ultra build --proxy` for fast cloud iteration.
-3. `ultra verify` / `ultra ralph auto-fix` until `stutterEvents === 0`, lint passes and style score >= 90.
-4. `ultra render --4k` (hybrid or native) -> exact 4K master + `build/delivery-manifest.json`.
-5. `ultra export-project` -> `ultra guard --stage delivery` -> deliver MP4 + editable zip + evidence.
+2. `ultra preview --frame <N>` for a one-frame look; `ultra build --scene <id>` +
+   `ultra verify --scene <id> <ref>` for a single-scene loop.
+3. `ultra build --proxy` for fast cloud iteration.
+4. `ultra verify` / `ultra ralph auto-fix` until `stutterEvents === 0` (NEW
+   stutter vs the reference), lint passes and style score >= 90. A claim that the
+   draft "matches the reference" requires `ultra verify <ref> --full`; quote the
+   report's `notChecked[]` instead of implying a full pass.
+5. `ultra render --4k` (hybrid or native) -> exact 4K master + `build/delivery-manifest.json`.
+6. `ultra export-project` -> `ultra guard --stage delivery` -> deliver MP4 + editable zip + evidence.
 
 ## Hard rules
 - ZERO external AI APIs, ZERO API keys, ZERO `npm install` in cloud chats. Use the bundled `dist/ultra.mjs`, offline fonts, synth-audio and the host's native image/video/audio tools.
 - Never claim complete without test evidence. Run `ultra guard` and `ultra ralph status`; cite `ffprobe`, `verify-report.json`, `delivery-manifest.json` and CI.
 - Keep all paths relative in exported projects. No placeholder text ("Lorem ipsum", "TBD", "INSERT TEXT") in shipped scenes or captions.
+- Declare `meta.method` (`native` unless the user explicitly asked for plate replay). Native projects must never use reference frames as assets — `guard` fails SHA-1/aHash reuse.
+- `stutterEvents` means NEW stutter vs the reference's own holds. `verify-report.json` `notChecked[]` is part of the delivery evidence.
 - Use `ultra context-pack --stage <stage>` on long chats; call `ultra status --json` every turn.
 - Follow `.ultra/rules/*` and the role contracts in `.ultra/agents/*`.
 

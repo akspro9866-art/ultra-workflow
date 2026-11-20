@@ -570,6 +570,11 @@ describe("[20] ultra preview — frame + range without a full build", () => {
     await fs.writeFile(path.join(workspace, "ultra.json"), JSON.stringify(project), "utf8");
     await makeColorClip(path.join(workspace, "reference.mp4"), 508 / 30, "0xd9484f", 160, 90, 30);
 
+    // Warm the OS/browser caches with one preview so the ratio measures scene
+    // work, not Chrome cold start (which both commands pay once).
+    const warm = await runCli(dir, ["preview", "--frame", "0"], 300_000);
+    expect(warm.code, warm.stderr).toBe(0);
+
     const fullStart = Date.now();
     const full = await runCli(dir, ["build"], 1_800_000);
     expect(full.code, full.stderr).toBe(0);
