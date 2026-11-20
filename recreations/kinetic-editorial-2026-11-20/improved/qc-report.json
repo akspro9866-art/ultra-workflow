@@ -1,0 +1,41 @@
+{
+  "master": {
+    "file": "improved-recreation-1080p.mp4",
+    "durationSec": 8.959,
+    "frames": 215,
+    "resolution": "1920x1080",
+    "fps": "24/1",
+    "video": "H.264 yuv420p",
+    "audio": "AAC 48kHz stereo",
+    "sizeBytes": 3195480
+  },
+  "project": {
+    "scenes": 9,
+    "assets": 40,
+    "transitions": 8,
+    "nativeRender": "960x540",
+    "delivery": "1920x1080"
+  },
+  "mediaChecks": {
+    "integratedLufs": -15.4,
+    "sourceIntegratedLufs": -15.4,
+    "stutterEvents": 0,
+    "stutterFrames": 0,
+    "duplicateRuns": [
+      {
+        "startFrame": 85,
+        "length": 1
+      }
+    ],
+    "blackFrameEvents": []
+  },
+  "workflow": {
+    "ultraDeliveryGuard": "PASS",
+    "editableProject": "59 files; FCPXML, OTIO and offline inspector included",
+    "ultraFullVerify": "not rerun after the final micro-adjustment; media-level checks were run instead"
+  },
+  "limitations": [
+    "The source is 702x396; final master is upscaled from the native 960x540 render.",
+    "Quantitative checks do not guarantee subjective creative fidelity."
+  ]
+}
