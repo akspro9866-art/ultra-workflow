@@ -1,0 +1,33 @@
+{
+  "verifyPass": true,
+  "durationSec": 8.958333,
+  "fpsExpected": 24,
+  "fpsActual": 24,
+  "durationDeltaSec": 0,
+  "stutterEvents": 0,
+  "stutterFrames": 0,
+  "staticHoldFrames": 0,
+  "blackFrames": 0,
+  "integratedLufs": -17.39,
+  "lintDefects": 0,
+  "criticalLintDefects": 0,
+  "deliveryGuardPass": true,
+  "finalExport": {
+    "resolution": "1920x1080",
+    "fps": 24,
+    "videoCodec": "H.264",
+    "audioCodec": "AAC",
+    "sampleRateHz": 48000,
+    "durationSec": 8.958333,
+    "sizeBytes": 7623576
+  },
+  "ultraRender": {
+    "resolution": "960x540",
+    "fps": 24,
+    "audioLufs": -17.39,
+    "transitions": 8,
+    "sceneCount": 9,
+    "visualAssetCount": 19,
+    "sfxCueCount": 8
+  }
+}

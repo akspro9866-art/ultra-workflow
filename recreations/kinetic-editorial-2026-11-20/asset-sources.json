@@ -1,0 +1,35 @@
+{
+  "visualAssetCount": 19,
+  "audioAssetCount": 6,
+  "visualAssetPolicy": "No full reference frames used; independently extracted image crops and native vector elements only.",
+  "audio": [
+    {"id":"ambient-bed","kind":"synthesized music","preset":"ambient-tech"},
+    {"id":"whoosh","kind":"synthesized SFX"},
+    {"id":"whoosh-fast","kind":"synthesized SFX"},
+    {"id":"pop","kind":"synthesized SFX"},
+    {"id":"shutter","kind":"synthesized SFX"},
+    {"id":"chime","kind":"synthesized SFX"},
+    {"id":"sub-hit","kind":"synthesized SFX"}
+  ],
+  "visualElements": [
+    "three circle motifs",
+    "keyboard photo tile",
+    "fabric photo tile",
+    "face photo strip",
+    "coastal water photo tile",
+    "outdoor portrait tile",
+    "iridescent surface tile",
+    "eye close-up tile",
+    "blue ripple tile",
+    "flower tile",
+    "cloud tiles",
+    "field portrait tile",
+    "hands tile",
+    "grasses tile",
+    "people and sky tile",
+    "wire globe illustration",
+    "dark pebble illustration",
+    "floating color fragments"
+  ],
+  "notes": "The native project JSON and exact generated asset files are inside the downloadable editable project/source workspace packages."
+}
