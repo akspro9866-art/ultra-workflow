@@ -28,6 +28,20 @@ export async function loadProject(workspace: string): Promise<UltraProjectT> {
   return loadProjectFile(path.join(workspace, "ultra.json"));
 }
 
+/** Resolve meta.sourceVideoPath against the project root (cwd) or the workspace. */
+export async function resolveSourceVideoPath(workspace: string, p: string): Promise<string | null> {
+  const candidates = path.isAbsolute(p) ? [p] : [path.resolve(process.cwd(), p), path.resolve(workspace, p)];
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
 /** Semantic validation beyond per-field Zod checks. Returns a list of human-readable errors. */
 export function validateProjectSemantics(project: UltraProjectT): string[] {
   const errors: string[] = [];

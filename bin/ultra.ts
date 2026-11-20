@@ -4,7 +4,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { detectEnvironment } from "../core/env.js";
 import { probeReference } from "../core/probe.js";
-import { loadProject, ProjectValidationError, validateProjectSemantics } from "../core/project.js";
+import { loadProject, ProjectValidationError, resolveSourceVideoPath, validateProjectSemantics } from "../core/project.js";
+import { measureStreamDurations } from "../core/probe.js";
 import { validateAssets } from "../core/assets.js";
 import { buildProject, lintProject, type BuildManifest } from "../core/orchestrator.js";
 import { stitchTimeline } from "../core/stitcher.js";
@@ -289,12 +290,40 @@ program
 
 program
   .command("validate-spec")
-  .description("Strict Zod + semantic validation of workspace/ultra.json")
+  .description("Strict Zod + semantic validation of workspace/ultra.json (incl. ffprobe video-stream duration check)")
   .action(async () => {
     const { workspace } = paths();
     const project = await loadValidatedProject(workspace);
     const mainScenes = project.scenes.filter((s) => !s.overlayOfSceneId).length;
     const overlays = project.scenes.length - mainScenes;
+
+    // [24] meta.durationSec must come from the VIDEO stream, not container/audio
+    // length. One frame of mismatch makes verify sample a non-existent frame.
+    const source = await resolveSourceVideoPath(workspace, project.meta.sourceVideoPath);
+    if (!source) {
+      console.log(
+        `  warning   meta.sourceVideoPath "${project.meta.sourceVideoPath}" not found (checked cwd + workspace) — duration not measured`,
+      );
+    } else {
+      const streams = await measureStreamDurations(source);
+      const videoSec = streams.videoSec;
+      if (videoSec !== null) {
+        const tolerance = 1 / project.meta.fps + 0.0005;
+        const delta = Math.abs(project.meta.durationSec - videoSec);
+        if (delta > tolerance) {
+          const audioNote = streams.audioSec !== null ? ` · audio stream ${streams.audioSec.toFixed(3)}s` : "";
+          throw new CliError(
+            `meta.durationSec ${project.meta.durationSec}s does not match the reference VIDEO stream ` +
+              `${videoSec.toFixed(3)}s (ffprobe ${path.basename(source)}${audioNote}). ` +
+              `Difference ${delta.toFixed(3)}s > 1 frame (${(1 / project.meta.fps).toFixed(4)}s). ` +
+              `Set meta.durationSec to the video stream duration — container/audio length samples a non-existent frame.`,
+          );
+        }
+        console.log(
+          `  duration  meta ${project.meta.durationSec}s · video stream ${videoSec.toFixed(3)}s (ffprobe ${path.basename(source)}) OK`,
+        );
+      }
+    }
     console.log(`ultra.json OK · ${project.scenes.length} scenes (${mainScenes} timeline, ${overlays} overlays) · ${project.assets.length} assets · ${project.meta.durationSec}s @ ${project.meta.fps}fps`);
   });
 

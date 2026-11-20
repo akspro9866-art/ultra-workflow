@@ -109,6 +109,40 @@ export async function extractFrameAt(
   ]);
 }
 
+export interface StreamDurations {
+  videoSec: number | null;
+  audioSec: number | null;
+  containerSec: number | null;
+}
+
+/**
+ * Measure per-stream durations with ffprobe. Container (`format.duration`) is
+ * the MAX of all streams — on real films it is usually the AUDIO length, which
+ * is not frame-safe for video timelines. Timeline math must use videoSec.
+ */
+export async function measureStreamDurations(file: string): Promise<StreamDurations> {
+  const meta = await ffprobeJson(file);
+  const streams: any[] = meta.streams ?? [];
+  const video = streams.find((s) => s.codec_type === "video");
+  const audio = streams.find((s) => s.codec_type === "audio");
+  const positive = (value: unknown): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  let videoSec = positive(video?.duration);
+  if (videoSec === null && video) {
+    const frames = Number(video.nb_frames);
+    const fps = parseRational(video.avg_frame_rate ?? video.r_frame_rate);
+    if (Number.isFinite(frames) && frames > 0 && fps) videoSec = frames / fps;
+  }
+  if (videoSec === null) videoSec = positive(meta.format?.duration);
+  return {
+    videoSec,
+    audioSec: positive(audio?.duration),
+    containerSec: positive(meta.format?.duration),
+  };
+}
+
 function buildSegments(durationSec: number, cuts: number[]): Segment[] {
   const boundaries = [0, ...cuts.filter((t) => t > 0.1 && t < durationSec - 0.1), durationSec];
   const unique: number[] = [];

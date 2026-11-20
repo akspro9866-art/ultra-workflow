@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { ProbeResultT, UltraProjectT } from "../core/schema.js";
-import { extractFrameAt } from "../core/probe.js";
+import { extractFrameAt, measureStreamDurations } from "../core/probe.js";
 import { renderHtmlToPng, getBrowserInfo } from "../core/browser.js";
 import { ffmpeg, ffmpegOk } from "../core/ffmpeg.js";
 import { discoverFonts } from "../core/env.js";
@@ -130,7 +130,20 @@ export async function buildVisualPairs(opts: {
       times.add(round(scene.startSec, 3));
     }
   }
-  const ordered = [...times].sort((a, b) => a - b).filter((t, i, arr) => i === 0 || t - (arr[i - 1] as number) > 0.08);
+
+  // [24] Never trust the spec alone: clamp every sample to the DRAFT's measured
+  // video-stream duration (and the reference's), keeping half a frame of margin.
+  const draftMeasured = (await measureStreamDurations(opts.draft).catch(() => null))?.videoSec ?? duration;
+  const refMeasured = (await measureStreamDurations(opts.reference).catch(() => null))?.videoSec ?? duration;
+  const safeDuration = Math.max(0, Math.min(draftMeasured, refMeasured));
+  // Two frames of margin: `-ss` rounds to milliseconds, and seeking exactly on
+  // the last frame's PTS can return no frame on some FFmpeg builds.
+  const halfFrame = 2 / Math.max(1, project.meta.fps) + 0.001;
+  const maxTime = Math.max(0, round(safeDuration - halfFrame, 3));
+  const ordered = [...times]
+    .map((t) => Math.min(Math.max(0, t), maxTime))
+    .sort((a, b) => a - b)
+    .filter((t, i, arr) => i === 0 || t - (arr[i - 1] as number) > 0.08);
   const capped = ordered.slice(0, opts.maxPairs ?? 14);
 
   await rmrf(opts.outDir);
@@ -145,7 +158,7 @@ export async function buildVisualPairs(opts: {
     const refFrame = path.join(scratch, `ref_${String(i + 1).padStart(2, "0")}.png`);
     const draftFrame = path.join(scratch, `draft_${String(i + 1).padStart(2, "0")}.png`);
     await extractFrameAt(opts.reference, t, refFrame, 960);
-    await extractFrameAt(opts.draft, Math.min(t, duration - 0.05), draftFrame, 960);
+    await extractFrameAt(opts.draft, Math.min(t, maxTime), draftFrame, 960);
     const sceneId = sceneIdAt(project, t);
     const ssim = await ssimBetween(refFrame, draftFrame);
     const out = path.join(opts.outDir, `pair_${String(i + 1).padStart(2, "0")}.png`);

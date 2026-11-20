@@ -14,7 +14,7 @@ import { stitchTimeline, type StitchClip, type StitchResult } from "./stitcher.j
 import { resolveAssetPath } from "./assets.js";
 import { ensureDir, pathExists, round, sha1, sha1File, writeJsonAtomic } from "./util.js";
 
-export const CACHE_VERSION = 4;
+export const CACHE_VERSION = 5;
 
 export const ENGINES: Record<EngineKey, SceneEngine> = {
   hyperframes: hyperframesEngine,
@@ -117,10 +117,19 @@ export async function cacheKeyForScene(
     assetHashes[id] = (await pathExists(file)) ? await sha1File(file) : "missing";
   }
 
+  // Custom scene HTML lives outside ultra.json: hash the file contents so an
+  // edit without a JSON change still invalidates this scene (and only this one).
+  let customHtmlFileSha1 = "none";
+  if (scene.customHtmlFile) {
+    const file = path.resolve(workspace, "scenes", scene.customHtmlFile);
+    customHtmlFileSha1 = (await pathExists(file)) ? await sha1File(file) : "missing";
+  }
+
   const payload = {
     version: CACHE_VERSION,
     resolvedEngine,
     scene,
+    customHtmlFileSha1,
     designTokens: project.designTokens,
     colorGrade: project.colorGrade,
     meta: {
