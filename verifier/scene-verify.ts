@@ -6,6 +6,8 @@ import { safeSceneId, lintProject } from "../core/orchestrator.js";
 import { auditDraft } from "./metrics.js";
 import { buildScenePairs, type VisualPair } from "./visual-diff.js";
 import { createRubric } from "./rubric.js";
+import { buildNotCheckedList } from "./honesty.js";
+import { jitterSummary } from "./metrics.js";
 import { ensureDir, pathExists, rmrf, round, writeJsonAtomic } from "../core/util.js";
 import { ffmpegOk } from "../core/ffmpeg.js";
 
@@ -116,7 +118,12 @@ export async function verifyScene(opts: {
       ssim: pair.ssim,
       mae: null,
     })),
-    rubric: createRubric(),
+    rubric: createRubric(project.meta.method ?? "native"),
+    method: project.meta.method ?? "native",
+    ...(jitterSummary(metrics.jitterDraft) ? { jitterDraft: jitterSummary(metrics.jitterDraft) } : {}),
+    ...(jitterSummary(metrics.jitterReference) ? { jitterReference: jitterSummary(metrics.jitterReference) } : {}),
+    jitterUnmatchedEvents: metrics.jitterUnmatchedEvents,
+    notChecked: buildNotCheckedList({ hasAudio: metrics.loudness !== null, hasFullAudit: false, hasReference: true, fontMatched: false }),
     pass: metrics.pass && lint.pass,
   };
   VerifyReport.parse(report);

@@ -390,6 +390,7 @@ export async function validateAssets(
         ...(asset.requireAlpha ? { requireAlpha: asset.requireAlpha } : {}),
         targetPath: asset.targetPath,
         instruction: `${instructionFor(asset, host)}${check && check.exists ? ` Current problem: ${check.status}.` : ""}`,
+        ...(AUDIO_ASSET_TYPES.has(asset.type) ? { origin: check?.origin ?? asset.origin ?? "user-supplied" } : {}),
         ...(binding && IMAGE_ASSET_TYPES.has(asset.type) ? { similarityTarget: binding } : {}),
         ...(strategy ? { chatgptStrategy: strategy } : {}),
         ...(synthPreset ? { synthPreset } : {}),

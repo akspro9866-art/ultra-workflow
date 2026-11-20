@@ -9,6 +9,7 @@ export function starterProject(): UltraProjectT {
       height: 720,
       fps: 30,
       durationSec: 4,
+      method: "native",
     },
     designTokens: {
       palette: {

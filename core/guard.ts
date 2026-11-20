@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { UltraProjectT } from "./schema.js";
-import { loadProject } from "./project.js";
+import { loadProject, resolveSourceVideoPath } from "./project.js";
 import { resolveAssetPath, resolveSourceClipPath } from "./assets.js";
 import { checkApprovalGate, loadPlan } from "./preprod.js";
 import { resolveProcessMode } from "./state.js";
@@ -9,8 +9,10 @@ import { resolveAspectProfile } from "./safe-zones.js";
 import { stylesRoot } from "./style-pack.js";
 import { installRoot, ultraTmpDir } from "./env.js";
 import { ffprobeJson } from "./ffmpeg.js";
+import { extractFrameAt } from "./probe.js";
+import { hammingDistance, perceptualHash } from "./similarity.js";
 import { extractZip } from "./zip.js";
-import { pathExists, readJson } from "./util.js";
+import { pathExists, readJson, sha1File } from "./util.js";
 import { promises as fsPromises } from "node:fs";
 
 export type GuardStage = "plan" | "build" | "verify" | "delivery";
@@ -98,6 +100,100 @@ export async function runGuard(workspace: string, buildDir: string, stage: Guard
       const file = resolveAssetPath(workspace, asset);
       if (!(await pathExists(file))) {
         errors.push({ check: "asset", detail: `asset "${asset.id}" is missing on disk: ${asset.targetPath}` });
+      }
+    }
+
+    // [7] Honesty annotations: list every guessed scene (timings included).
+    for (const scene of project.scenes) {
+      const source = scene.source ?? "guessed";
+      if (source === "guessed") {
+        warnings.push({
+          check: "source",
+          detail: `scene "${scene.id}" timing/layout is GUESSED (default) — annotate source:"measured" with evidence when probe-measured`,
+        });
+      }
+    }
+    const measurementsFile = path.join(workspace, "measurements.json");
+    if (await pathExists(measurementsFile)) {
+      try {
+        const measurements = JSON.parse(await fs.readFile(measurementsFile, "utf8")) as unknown;
+        const count = Array.isArray(measurements) ? measurements.length : typeof measurements === "object" && measurements ? Object.keys(measurements as object).length : 0;
+        warnings.push({ check: "measurements", detail: `workspace/measurements.json supported (${count} entries)` });
+      } catch {
+        warnings.push({ check: "measurements", detail: "workspace/measurements.json is not valid JSON — ignored" });
+      }
+    }
+
+    // [26] Method provenance: "native" must not reuse reference frames as assets.
+    const method = project.meta.method;
+    if (method === undefined) {
+      warnings.push({
+        check: "method",
+        detail: 'meta.method absent — treated as "native" (declare "method": "native"|"plate-replay"|"mixed" for new projects)',
+      });
+    }
+    if ((method ?? "native") === "native") {
+      warnings.push({
+        check: "method",
+        detail: "native method: plate detection is limited to SHA-1 equality + 8x8 aHash (arbitrary small crops are not reliably caught)",
+      });
+      const reference = await resolveSourceVideoPath(workspace, project.meta.sourceVideoPath).catch(() => null);
+      if (reference) {
+        const referenceSha1 = await sha1File(reference).catch(() => null);
+        // Reference frames: the probe's extracted frames when available, else scene midpoints.
+        const frameFiles: string[] = [];
+        const probeFramesDir = path.join(workspace, "probe-frames");
+        try {
+          const entries = (await fs.readdir(probeFramesDir)).filter((name) => /\.(png|jpg|jpeg|webp)$/i.test(name)).sort();
+          for (let i = 0; i < entries.length && frameFiles.length < 12; i += Math.max(1, Math.floor(entries.length / 12))) {
+            frameFiles.push(path.join(probeFramesDir, entries[i] as string));
+          }
+        } catch {
+          // no probe frames
+        }
+        if (frameFiles.length === 0) {
+          const scratch = path.join(ultraTmpDir(), `ultra-guard-frames-${process.pid}-${Date.now()}`);
+          const scenes = project.scenes.filter((scene) => !scene.overlayOfSceneId).slice(0, 6);
+          for (let i = 0; i < scenes.length; i += 1) {
+            const scene = scenes[i] as (typeof scenes)[number];
+            const out = path.join(scratch, `frame_${i}.png`);
+            try {
+              await extractFrameAt(reference, (scene.startSec + scene.endSec) / 2, out, 640);
+              frameFiles.push(out);
+            } catch {
+              // skip
+            }
+          }
+        }
+        const frameHashes: { file: string; hash: number[] }[] = [];
+        for (const file of frameFiles) {
+          const hash = await perceptualHash(file);
+          if (hash) frameHashes.push({ file, hash });
+        }
+        for (const asset of project.assets) {
+          if (!["image", "illustration", "png_alpha"].includes(asset.type)) continue;
+          const file = resolveAssetPath(workspace, asset);
+          if (!(await pathExists(file))) continue;
+          const digest = await sha1File(file).catch(() => null);
+          if (digest && referenceSha1 && digest === referenceSha1) {
+            errors.push({
+              check: "method",
+              detail: `asset "${asset.id}" is the reference file itself (same SHA-1) but meta.method declares "native"`,
+            });
+            continue;
+          }
+          const assetHash = await perceptualHash(file);
+          if (!assetHash) continue;
+          const match = frameHashes.find((frame) => hammingDistance(assetHash, frame.hash) <= 6);
+          if (match) {
+            errors.push({
+              check: "method",
+              detail: `asset "${asset.id}" matches a reference frame (aHash distance ≤ 6, ${path.basename(match.file)}) but meta.method declares "native" — reference frames may only be used for measurement`,
+            });
+          }
+        }
+      } else {
+        warnings.push({ check: "method", detail: "native method: reference video not found — plate detection skipped" });
       }
     }
   }

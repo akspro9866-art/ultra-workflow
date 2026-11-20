@@ -159,6 +159,9 @@ export function validateProjectSemantics(project: UltraProjectT): string[] {
   }
   for (const cue of project.audio.sfxCues) {
     if (!assetIds.has(cue.assetId)) errors.push(`audio.sfxCues references unknown asset "${cue.assetId}"`);
+    if (cue.sceneId && !sceneIds.has(cue.sceneId)) {
+      errors.push(`audio.sfxCues scene-anchored cue references unknown scene "${cue.sceneId}"`);
+    }
   }
 
   return errors;

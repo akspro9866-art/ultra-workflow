@@ -12,13 +12,17 @@ import { stitchTimeline } from "../core/stitcher.js";
 import { ProbeResult, VerifyReport, type VerifyReportT, type ProbeResultT } from "../core/schema.js";
 import { DESIGN_TEMPLATE, MOTION_TEMPLATE, starterProject } from "../core/templates.js";
 import { ensureDir, pathExists, readJson, writeJsonAtomic } from "../core/util.js";
-import { auditDraft } from "../verifier/metrics.js";
+import { auditDraft, jitterSummary } from "../verifier/metrics.js";
 import { buildVisualPairs } from "../verifier/visual-diff.js";
 import { createRubric } from "../verifier/rubric.js";
 import { applyPatch } from "../verifier/patcher.js";
 import { runStyleVerify } from "../verifier/style-verify.js";
 import { verifyScene } from "../verifier/scene-verify.js";
 import { previewFrame, previewRange } from "../core/preview.js";
+import { buildAssetSimilaritySection, buildFontCheckSection, buildNotCheckedList, measureEasingCurves } from "../verifier/honesty.js";
+import { colourRoundTrip } from "../verifier/colour.js";
+import { fullFrameAudit } from "../verifier/full-audit.js";
+import { measureAudioSync, sfxSyncWarnings } from "../core/audio-sync.js";
 import { styleProbe } from "../core/style-probe.js";
 import { styleExport, styleImport, styleList, validateStylePack } from "../core/style-pack.js";
 import { loadStylePack, rawProbe } from "../core/raw-probe.js";
@@ -545,7 +549,8 @@ program
   .option("--draft <path>", "draft video to audit", "build/draft.mp4")
   .option("--style <slug>", "Process 2B: verify against an installed Style Pack")
   .option("--scene <id>", "[21] verify ONE scene only (metrics + visual-diff + lint)")
-  .action(async (reference: string | undefined, options: { draft: string; style?: string; scene?: string }) => {
+  .option("--full", "[25] SSIM for EVERY frame (required to claim 'matches reference')")
+  .action(async (reference: string | undefined, options: { draft: string; style?: string; scene?: string; full?: boolean }) => {
     const { workspace, buildDir } = paths();
     const project = await loadValidatedProject(workspace);
     if (options.scene) {
@@ -589,6 +594,14 @@ program
       const metrics = result.metrics;
       const lint = result.lint;
       const compliance = result.compliance;
+      const method = project.meta.method ?? "native";
+      const fontCheck = await buildFontCheckSection(project, workspace);
+      const notChecked = buildNotCheckedList({
+        hasAudio: metrics.loudness !== null,
+        hasFullAudit: false,
+        hasReference: false,
+        fontMatched: false,
+      });
       const report: VerifyReportT = {
         version: 1,
         createdAt: new Date().toISOString(),
@@ -604,8 +617,13 @@ program
         },
         visualPairs: [],
         sceneSimilarity: [],
-        rubric: createRubric(),
+        rubric: createRubric(method),
+        method,
+        ...(jitterSummary(metrics.jitterDraft) ? { jitterDraft: jitterSummary(metrics.jitterDraft) } : {}),
+        jitterUnmatchedEvents: metrics.jitterUnmatchedEvents,
+        fontCheck,
         style: { slug: options.style, compliance, matchSheet: result.matchSheet },
+        notChecked,
         pass: result.pass,
       };
       VerifyReport.parse(report);
@@ -630,12 +648,14 @@ program
       );
       for (const detail of compliance.details.slice(0, 12)) console.log(`    - ${detail}`);
       console.log(`  match     ${result.matchSheet ?? "not generated"} (STYLE EXEMPLAR vs YOUR EDIT)`);
+      console.log(`  method    ${method} · fonts ${fontCheck.score}/100${fontCheck.unavailableFonts.length ? ` (unavailable: ${fontCheck.unavailableFonts.join(", ")})` : ""}`);
       if (!report.pass) {
         console.log(`  RESULT    FAIL — patch weak scenes, then rerun \`ultra build && ultra verify --style ${options.style}\``);
         process.exitCode = 1;
       } else {
         console.log(`  RESULT    PASS — run \`ultra render\` for the final broadcast MP4`);
       }
+      console.log(`  notChecked: ${JSON.stringify(notChecked)}`);
       return;
     }
 
@@ -668,6 +688,26 @@ program
       probe,
     });
 
+    // [23]/[25]/[26]/[27]/[29]/[16] honesty + measurement sections.
+    const method = project.meta.method ?? "native";
+    const assetSimilarity = await buildAssetSimilaritySection(project, workspace);
+    const fontCheck = await buildFontCheckSection(project, workspace);
+    const easing = await measureEasingCurves(ref, draft, project);
+    const colour = await colourRoundTrip(project, workspace, buildDir);
+    const audioSync = await measureAudioSync(ref, draft);
+    const sfxWarnings = await sfxSyncWarnings(project, workspace);
+    let fullAudit: VerifyReportT["fullAudit"];
+    if (options.full) {
+      const full = await fullFrameAudit({ reference: ref, draft, fps: project.meta.fps, outDir: path.join(buildDir, "audit-frames") });
+      fullAudit = { frameCount: full.frameCount, mean: full.mean, p10: full.p10, worst20: full.worst20 };
+    }
+    const notChecked = buildNotCheckedList({
+      hasAudio: metrics.loudness !== null,
+      hasFullAudit: Boolean(fullAudit),
+      hasReference: true,
+      fontMatched: false,
+    });
+
     const report: VerifyReportT = {
       version: 1,
       createdAt: new Date().toISOString(),
@@ -689,35 +729,81 @@ program
         ssim: p.ssim,
         mae: null,
       })),
-      rubric: createRubric(),
+      rubric: createRubric(method),
+      method,
+      ...(jitterSummary(metrics.jitterDraft) ? { jitterDraft: jitterSummary(metrics.jitterDraft) } : {}),
+      ...(jitterSummary(metrics.jitterReference) ? { jitterReference: jitterSummary(metrics.jitterReference) } : {}),
+      jitterUnmatchedEvents: metrics.jitterUnmatchedEvents,
+      ...(assetSimilarity ? { assetSimilarity } : {}),
+      fontCheck,
+      easing,
+      ...(colour ? { colour } : {}),
+      audioSyncOffsetMs: audioSync?.offsetMs ?? null,
+      ...(sfxWarnings.length > 0 ? { sfxWarnings } : {}),
+      ...(fullAudit ? { fullAudit } : {}),
+      notChecked,
       pass: metrics.pass && lint.pass,
     };
     VerifyReport.parse(report);
     await writeJsonAtomic(reportFile, report);
 
     console.log(`verify → ${reportFile}`);
+    console.log(`  method    ${method} · reference for measurement only (native bans reference frames as assets)`);
     console.log(
       `  duration  Δ${metrics.durationDeltaSec >= 0 ? "+" : ""}${metrics.durationDeltaSec}s ${metrics.durationOk ? "OK" : "FAIL"} · fps ${metrics.fpsActual ?? "?"} ${metrics.fpsOk ? "OK" : "FAIL"} · cfr ${metrics.cfr ? "OK" : "FAIL"}`,
     );
     console.log(
-      `  motion    stutterEvents ${metrics.stutterEvents} (${metrics.jitterOk ? "OK" : "FAIL"}) · static holds ${metrics.staticHoldFrames}f (${(metrics.staticHoldRatio * 100).toFixed(1)}%) · black frames ${metrics.blackDetections.length} ${metrics.blackOk ? "OK" : "FAIL"}`,
+      `  motion    stutterEvents ${metrics.stutterEvents} NEW (${metrics.jitterOk ? "OK" : "FAIL"}) · reference holds ${jitterSummary(metrics.jitterReference)?.staticHoldFrames ?? "n/a"}f · static holds ${metrics.staticHoldFrames}f (${(metrics.staticHoldRatio * 100).toFixed(1)}%) · black frames ${metrics.blackDetections.length} ${metrics.blackOk ? "OK" : "FAIL"}`,
     );
+    for (const event of metrics.jitterUnmatchedEvents.slice(0, 6)) {
+      console.log(`    - NEW stutter at ${event.atSec}s (frames ${event.startFrame}..+${event.length}) not present in the reference`);
+    }
     console.log(
-      `  audio     ${metrics.loudness ? `${metrics.loudness.inputI ?? "?"} LUFS ${metrics.loudness.ok ? "OK" : "FAIL"}` : "no audio stream"}`,
+      `  audio     ${metrics.loudness ? `${metrics.loudness.inputI ?? "?"} LUFS ${metrics.loudness.ok ? "OK" : "FAIL"}` : "no audio stream"}${audioSync ? ` · sync offset ${audioSync.offsetMs} ms (corr ${audioSync.correlation})` : ""}`,
     );
+    for (const warning of sfxWarnings.slice(0, 6)) {
+      console.log(`    - SFX "${warning.assetId}" at ${warning.atSec}s is ${warning.distanceMs} ms from the nearest onset/cut (${warning.nearestSec ?? "?"}s)`);
+    }
     console.log(`  lint      ${lint.defectCount} defects (${lint.criticalDefectCount} critical) ${lint.pass ? "OK" : "FAIL"}`);
     const defects = lint.scenes.flatMap((s) => s.defects);
     for (const defect of defects.slice(0, 12)) {
       console.log(`    - [${defect.critical ? "critical" : "warning"}] ${defect.sceneId} (${defect.category}): ${defect.detail}`);
     }
     console.log(`  pairs     ${pairs.length} → build/audit-frames/pair_*.png (Left: ORIGINAL · Right: DRAFT)`);
-    console.log(`  rubric    5×20 pts template ready for the agent (pass threshold 90)`);
+    if (assetSimilarity && assetSimilarity.length > 0) {
+      console.log(`  assets    ${assetSimilarity.length} compared to reference segments · fonts ${fontCheck.score}/100${fontCheck.unavailableFonts.length ? ` (unavailable: ${fontCheck.unavailableFonts.join(", ")})` : ""}`);
+      for (const item of assetSimilarity.filter((entry) => entry.warnings.length > 0)) {
+        console.log(`    - asset "${item.assetId}" score ${item.score ?? "?"} (ssim ${item.ssim ?? "?"}, histogram ${item.histogramDistance ?? "?"}, edge ${item.edgeDensityRatio ?? "?"}): ${item.warnings[0]}`);
+      }
+    } else {
+      console.log(`  assets    not measured (run \`ultra validate-assets\` to write workspace/assets.manifest.json) · fonts ${fontCheck.score}/100`);
+    }
+    const measuredEasing = easing.filter((entry) => entry.curveError !== null);
+    console.log(
+      `  easing    ${measuredEasing.length}/${easing.length} scenes measurable${measuredEasing.length ? ` · worst ${Math.max(...measuredEasing.map((entry) => entry.curveError as number)).toFixed(1)} px` : ""}`,
+    );
+    for (const entry of measuredEasing.filter((item) => (item.curveError as number) > 12).slice(0, 6)) {
+      console.log(`    - scene ${entry.sceneId} motion curve error ${entry.curveError} px (${entry.samples} frames)`);
+    }
+    if (colour) {
+      const drifted = colour.filter((entry) => entry.deltaE > 3);
+      console.log(`  colour    ${colour.length} palette colours round-tripped · ${drifted.length} over ΔE 3 (CIE76)`);
+      for (const entry of drifted) console.log(`    - ${entry.name} ${entry.intendedHex} → ${entry.measuredHex} ΔE ${entry.deltaE}`);
+    }
+    if (fullAudit) {
+      const worst = fullAudit.worst20[0];
+      console.log(
+        `  full      ${fullAudit.frameCount} frames · mean SSIM ${fullAudit.mean} · p10 ${fullAudit.p10} · worst ${worst ? `${worst.ssim} @ frame ${worst.frame}` : "n/a"} → build/audit-frames/worst_*.png`,
+      );
+    }
+    console.log(`  rubric    5×20 pts template ready for the agent (pass threshold 90, method ${method})`);
     if (!report.pass) {
       console.log(`  RESULT    FAIL — patch failing scenes, then rerun \`ultra build && ultra verify\``);
       process.exitCode = 1;
     } else {
       console.log(`  RESULT    PASS — run \`ultra render\` for the final broadcast MP4`);
     }
+    console.log(`  notChecked: ${JSON.stringify(notChecked)}`);
   });
 
 program
@@ -1208,11 +1294,24 @@ program
       audio: audio
         ? { codec: audio.codec_name ?? null, sampleRate: audio.sample_rate ?? null, channels: audio.channels ?? null, bitrate: "320k" }
         : null,
+      audioOrigins: [] as { assetId: string; origin: string }[],
       durationSec: Number(probe.format?.duration ?? 0),
       files: { master: outFile },
       checks,
       pass: Object.values(checks).every(Boolean),
     };
+    // [30] Carry audio provenance labels through the delivery manifest.
+    try {
+      const manifestFile = path.join(workspace, "assets.manifest.json");
+      if (await pathExists(manifestFile)) {
+        const assetsManifest = (await readJson(manifestFile)) as { assets?: Record<string, { origin?: string }> };
+        deliveryManifest.audioOrigins = Object.entries(assetsManifest.assets ?? {})
+          .filter(([, check]) => typeof check.origin === "string")
+          .map(([assetId, check]) => ({ assetId, origin: check.origin as string }));
+      }
+    } catch {
+      // provenance labels are best-effort, never block delivery
+    }
     await writeJsonAtomic(path.join(buildDir, "delivery-manifest.json"), deliveryManifest);
     await writeJsonAtomic(path.join(buildDir, "render-manifest.json"), {
       renderedAt: new Date().toISOString(),

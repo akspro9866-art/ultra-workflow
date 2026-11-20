@@ -15,6 +15,8 @@ export interface JitterAnalysis {
   maxStaticHoldFrames: number;
   maxStaticHoldSec: number;
   runs: JitterRun[];
+  /** Runs actually classified as stutter (isolated 2–3 duplicates amid motion). */
+  stutterRuns: JitterRun[];
 }
 
 /**
@@ -79,6 +81,7 @@ export function classifyFrameDifferences(diffs: number[], totalFrames: number, f
   let stutterEvents = 0;
   let stutterFrames = 0;
   let maxStaticHoldFrames = 0;
+  const stutterRuns: JitterRun[] = [];
   const duplicateFrames = runs.reduce((acc, run) => acc + run.length, 0);
 
   for (const run of runs) {
@@ -89,6 +92,7 @@ export function classifyFrameDifferences(diffs: number[], totalFrames: number, f
     else if (run.length >= 2 && run.length <= 3 && !endsAtStart && !endsAtEnd) {
       stutterEvents += 1;
       stutterFrames += run.length;
+      stutterRuns.push(run);
     } else {
       // long holds, boundary holds and single-frame micro-holds
       staticHoldFrames += run.length;
@@ -104,6 +108,7 @@ export function classifyFrameDifferences(diffs: number[], totalFrames: number, f
     maxStaticHoldFrames,
     maxStaticHoldSec: round(maxStaticHoldFrames / fps, 3),
     runs,
+    stutterRuns,
   };
 }
 

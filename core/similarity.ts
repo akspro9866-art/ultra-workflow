@@ -130,6 +130,44 @@ function histogramDistance(a: number[], b: number[]): number {
 let scratchCounter = 0;
 
 /**
+ * [26] 8x8 average-hash of an image. Catches exact/near-identical reference
+ * reuse (whole frame or a re-encode of it). Documented limit: arbitrary small
+ * crops are not reliably detected by a global aHash.
+ */
+export async function perceptualHash(file: string): Promise<number[] | null> {
+  try {
+    const result = await runBinary("ffmpeg", [
+      "-v",
+      "error",
+      "-i",
+      path.isAbsolute(file) ? file : path.resolve(file),
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=8:8:flags=area,format=gray",
+      "-f",
+      "rawvideo",
+      "-pix_fmt",
+      "gray",
+      "-",
+    ]);
+    if (result.code !== 0 || result.stdout.length < 64) return null;
+    const values = Array.from(result.stdout.subarray(0, 64));
+    const mean = values.reduce((a, b) => a + b, 0) / 64;
+    return values.map((v) => (v >= mean ? 1 : 0));
+  } catch {
+    return null;
+  }
+}
+
+export function hammingDistance(a: number[], b: number[]): number {
+  let distance = 0;
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i += 1) if ((a[i] as number) !== (b[i] as number)) distance += 1;
+  return distance;
+}
+
+/**
  * Compare an image asset to the reference frame its scene replaces.
  * `atSec` is normally the midpoint of the asset's target scene/segment.
  */

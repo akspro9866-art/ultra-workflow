@@ -50,6 +50,20 @@ function sceneById(project: UltraProjectT, id: string): SceneSpecT {
   return scene;
 }
 
+/**
+ * [28] Resolve every SFX cue to absolute seconds. Scene-anchored cues follow
+ * the scene's CURRENT startSec at stitch time, so a retime never orphans them.
+ */
+export function resolveSfxCueTimes(project: UltraProjectT): { cue: UltraProjectT["audio"]["sfxCues"][number]; atSec: number }[] {
+  return project.audio.sfxCues.map((cue) => {
+    if (cue.sceneId !== undefined && cue.offsetSec !== undefined) {
+      const scene = sceneById(project, cue.sceneId);
+      return { cue, atSec: round(Math.max(0, scene.startSec + cue.offsetSec), 3) };
+    }
+    return { cue, atSec: round(cue.atSec ?? 0, 3) };
+  });
+}
+
 interface Run {
   clips: StitchClip[];
   startSec: number;
@@ -199,9 +213,10 @@ export async function stitchTimeline(opts: StitchOptions): Promise<StitchResult>
   const assetById = (id: string | undefined) => project.assets.find((a) => a.id === id) ?? null;
   const musicAsset = assetById(audioAssets.musicAssetId);
   const voiceAsset = assetById(audioAssets.voiceAssetId);
-  const sfxAssets = audioAssets.sfxCues
-    .map((cue) => ({ cue, asset: assetById(cue.assetId) }))
-    .filter((v): v is { cue: (typeof audioAssets.sfxCues)[number]; asset: NonNullable<ReturnType<typeof assetById>> } => Boolean(v.asset));
+  const resolvedCues = resolveSfxCueTimes(project);
+  const sfxAssets = resolvedCues
+    .map(({ cue, atSec }) => ({ cue, atSec, asset: assetById(cue.assetId) }))
+    .filter((v): v is { cue: (typeof audioAssets.sfxCues)[number]; atSec: number; asset: NonNullable<ReturnType<typeof assetById>> } => Boolean(v.asset));
 
   let nextInput = overlayBaseIndex + overlayClips.length;
   let musicIndex = -1;
@@ -325,13 +340,13 @@ export async function stitchTimeline(opts: StitchOptions): Promise<StitchResult>
       if (musicIndex >= 0) mixLabels.push("[music]");
       if (voiceIndex >= 0) mixLabels.push("[voice]");
     }
-    sfxAssets.forEach(({ cue }, i) => {
+    sfxAssets.forEach(({ cue, atSec }, i) => {
       const label = `sfx${i}`;
       audioChains.push(
         `[${sfxIndices[i]}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${round(
           cue.gainDb,
           2,
-        )}dB,adelay=${Math.round(cue.atSec * 1000)}|${Math.round(cue.atSec * 1000)},apad=whole_dur=${durStr},atrim=0:${durStr}[${label}]`,
+        )}dB,adelay=${Math.round(atSec * 1000)}|${Math.round(atSec * 1000)},apad=whole_dur=${durStr},atrim=0:${durStr}[${label}]`,
       );
       mixLabels.push(`[${label}]`);
     });

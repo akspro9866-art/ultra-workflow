@@ -197,6 +197,12 @@ export const SceneSpec = z
     sourceClip: SourceClipSpec.optional(),
     /** Optional workspace-relative captions JSON (default: workspace/captions.json on sourceClip scenes). */
     captionsFile: z.string().optional(),
+    /**
+     * [7] Honesty annotation: was this scene measured from the reference,
+     * inferred from a pattern, or guessed? Absent defaults to "guessed".
+     */
+    source: z.enum(["measured", "inferred", "guessed"]).optional(),
+    evidence: z.string().optional(),
   })
   .superRefine((scene, ctx) => {
     if (scene.endSec <= scene.startSec) {
@@ -311,21 +317,39 @@ export const ColorGrade = z.object({
   vignette: z.number().min(0).max(1).default(0),
 });
 
+/**
+ * [28] SFX cue: absolute `atSec` OR scene-anchored `sceneId + offsetSec`.
+ * Scene-anchored cues follow the scene when it is retimed.
+ */
+export const SfxCue = z
+  .object({
+    assetId: z.string().min(1),
+    atSec: z.number().min(0).optional(),
+    sceneId: z.string().min(1).optional(),
+    offsetSec: z.number().optional(),
+    gainDb: z.number().default(0),
+  })
+  .superRefine((cue, ctx) => {
+    const hasAbsolute = cue.atSec !== undefined;
+    const hasScene = cue.sceneId !== undefined && cue.offsetSec !== undefined;
+    if (hasAbsolute === hasScene) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `sfx cue for "${cue.assetId}" must set EXACTLY ONE of atSec OR (sceneId + offsetSec)`,
+        path: ["atSec"],
+      });
+    }
+  });
+
 export const AudioSpec = z.object({
   targetLufs: z.number().min(-70).max(0).default(-14),
   musicAssetId: z.string().optional(),
   voiceAssetId: z.string().optional(),
   duckingDb: z.number().min(-60).max(0).default(-12),
-  sfxCues: z
-    .array(
-      z.object({
-        assetId: z.string().min(1),
-        atSec: z.number().min(0),
-        gainDb: z.number().default(0),
-      }),
-    )
-    .default([]),
+  sfxCues: z.array(SfxCue).default([]),
 });
+
+export type SfxCueT = z.infer<typeof SfxCue>;
 
 export const AspectProfile = z.enum(["9:16", "16:9", "1:1"]);
 export type AspectProfileT = z.infer<typeof AspectProfile>;
@@ -343,6 +367,11 @@ export const MetaSpec = z.object({
   deliveryResolution: z.enum(["4k", "1080p"]).optional(),
   /** Active workflow: pre-prod approval is required ONLY for edit-in-style. */
   processMode: z.enum(["extract-style", "clone-reference", "edit-in-style"]).optional(),
+  /**
+   * [26] How similarity is achieved. "native" (default for new projects) bans
+   * reference frames as assets; "plate-replay" reuses reference frames.
+   */
+  method: z.enum(["native", "plate-replay", "mixed"]).optional(),
 });
 
 export const UltraProject = z.object({
@@ -515,6 +544,7 @@ export const AssetTodo = z.object({
       requireAlpha: z.boolean().optional(),
       targetPath: z.string(),
       instruction: z.string(),
+      origin: z.enum(["synthesised", "recorded", "licensed", "user-supplied"]).optional(),
       similarityTarget: z
         .object({ sceneId: z.string(), startSec: z.number(), endSec: z.number() })
         .optional(),
@@ -569,6 +599,15 @@ export const RubricCategory = z.object({
   maxPoints: z.number(),
   items: z.array(RubricItem),
   score: z.number().nullable().default(null),
+  /** [26] Per-method expectation — never one comparable number across methods. */
+  expectation: z.string().optional(),
+});
+
+const JitterSummary = z.object({
+  stutterEvents: z.number(),
+  stutterFrames: z.number(),
+  staticHoldFrames: z.number(),
+  maxStaticHoldSec: z.number(),
 });
 
 export const VerifyReport = z.object({
@@ -641,7 +680,77 @@ export const VerifyReport = z.object({
     passThreshold: z.number(),
     categories: z.array(RubricCategory),
     totalScore: z.number().nullable().default(null),
+    method: z.string().optional(),
   }),
+  /** [26] Declared similarity method (also printed in every report). */
+  method: z.enum(["native", "plate-replay", "mixed"]).optional(),
+  /** [23] Draft vs reference jitter reconciliation. */
+  jitterDraft: JitterSummary.optional(),
+  jitterReference: JitterSummary.optional(),
+  jitterUnmatchedEvents: z
+    .array(z.object({ startFrame: z.number().int().min(0), length: z.number().int().min(0), atSec: z.number() }))
+    .default([]),
+  /** [27a] Scored honesty sections. */
+  assetSimilarity: z
+    .array(
+      z.object({
+        assetId: z.string(),
+        sceneId: z.string().nullable(),
+        ssim: z.number().nullable(),
+        histogramDistance: z.number().nullable(),
+        edgeDensityRatio: z.number().nullable(),
+        warnings: z.array(z.string()).default([]),
+        /** 0..100 composite (SSIM 60 + histogram 25 + edge closeness 15). */
+        score: z.number().min(0).max(100).nullable().optional(),
+      }),
+    )
+    .optional(),
+  fontCheck: z
+    .object({
+      fontsUsed: z.array(z.string()),
+      unavailableFonts: z.array(z.string()),
+      score: z.number().min(0).max(100),
+    })
+    .optional(),
+  /** [27b] Per-scene easing curve error (px); null = not measurable. */
+  easing: z
+    .array(
+      z.object({
+        sceneId: z.string(),
+        curveError: z.number().nullable(),
+        samples: z.number().int().min(0),
+        note: z.string().optional(),
+      }),
+    )
+    .optional(),
+  /** [16] sRGB → encode → decode colour round-trip per palette colour. */
+  colour: z
+    .array(
+      z.object({
+        name: z.string(),
+        intendedHex: z.string(),
+        measuredHex: z.string(),
+        deltaE: z.number(),
+        method: z.literal("CIE76"),
+      }),
+    )
+    .optional(),
+  /** [29] Cross-correlation of draft vs reference audio envelopes. */
+  audioSyncOffsetMs: z.number().nullable().optional(),
+  sfxWarnings: z
+    .array(z.object({ assetId: z.string(), atSec: z.number(), nearestSec: z.number().nullable(), distanceMs: z.number() }))
+    .optional(),
+  /** [25] verify --full: every-frame SSIM. */
+  fullAudit: z
+    .object({
+      frameCount: z.number().int().min(0),
+      mean: z.number().nullable(),
+      p10: z.number().nullable(),
+      worst20: z.array(z.object({ frame: z.number().int().min(0), timestampSec: z.number(), ssim: z.number() })),
+    })
+    .optional(),
+  /** [27c] Everything this gate did NOT verify. A PASS with a long list is honest. */
+  notChecked: z.array(z.string()).default([]),
   style: z
     .object({
       slug: z.string(),
