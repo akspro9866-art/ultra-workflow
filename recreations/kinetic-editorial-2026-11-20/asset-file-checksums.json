@@ -1,1 +1,27 @@
-{"note":"Per-asset SHA-1 checksums are included in the downloadable source workspace package alongside the generated assets."}
+[
+  {"file":"music_ambient.wav","bytes":1720044,"sha256":"14b95c5d4f81aad9a9179e844dc6f65df88f18675ed77bc02b31b5f677d93359"},
+  {"file":"pebble.png","bytes":2792,"sha256":"b3285e61687ff5c5de3b33a4ae4ac6c3974f09d92f20e79f9414524242d7e646"},
+  {"file":"photo_clouds.png","bytes":84867,"sha256":"8f99ca4ee291a122b46554b5850b6ae1842b2f522330126a340b749ba9947059"},
+  {"file":"photo_eye.png","bytes":95281,"sha256":"d41d6af834576cca119669aa1b80905ca6ce588c45bc224cc30c0abd44b8ea0d"},
+  {"file":"photo_fabric.png","bytes":37207,"sha256":"9692e7c642e152ee5bc0af86a3971eb40e2d7a4ef1f0b9c1b9401fdad755477d"},
+  {"file":"photo_face.png","bytes":65535,"sha256":"06030ae097de34834a0c76481c924b1325c9eb935d159748bb0db67c056c1e29"},
+  {"file":"photo_field_person.png","bytes":107023,"sha256":"6dea5c2de71f70b73ea863241a6bba48f419b877873bd8d1c3c0b4a2818d7a56"},
+  {"file":"photo_flower.png","bytes":67500,"sha256":"1bea1319aa1a8f7e8973015da5c04e90423029d0acd2d01230fc558883603dc3"},
+  {"file":"photo_girl_outdoor.png","bytes":94269,"sha256":"55cca5c5ba78096e4220bd50dc31529c7883565357e14d04f5c25d27288971af"},
+  {"file":"photo_grass.png","bytes":91430,"sha256":"babe9aa47e97ad892a96cc3db6d2319611aae7db0c28dc7575248fa6eff10101"},
+  {"file":"photo_hands.png","bytes":92644,"sha256":"d618696cdcd3c3c6ab75a9041238c7f59d61f4544c36c6a5af6b0483179ff084"},
+  {"file":"photo_iridescent.png","bytes":101419,"sha256":"7e43c93909552b10980469698f0f7329c13b83bab1f9f736f2b7881ff5caa3ec"},
+  {"file":"photo_keyboard.png","bytes":101900,"sha256":"892bfe6ca6648683f5da597080a5491ea361a4c4c4c89c8ca6031c0efc72b645"},
+  {"file":"photo_ocean.png","bytes":110339,"sha256":"cb731b233f0ed67d557407561ee469f0df091d8b561c5dcdba8b44bbfa3a2e2b"},
+  {"file":"photo_people_sky.png","bytes":68877,"sha256":"20881f73dba7afb6fd55337646082ef614655f6296a810a8fff679b62578fbcd"},
+  {"file":"photo_portrait.png","bytes":112742,"sha256":"852209b7ae3ad2b28040e2534d18bbea979c26c1a8bbd25f06dcec5140cc25f7"},
+  {"file":"photo_ripple.png","bytes":260185,"sha256":"c81f9b3e502efba6a81f68fb867f6c1813a5837b88a45bcc6ea4152c5ea096d1"},
+  {"file":"photo_shadow.png","bytes":56283,"sha256":"1f919edf83c7f5cb20e8ecf349e71dba903a8dfd42bcb93b7d73c36dd2c3f0c7"},
+  {"file":"sfx_chime.wav","bytes":138284,"sha256":"6f421c351b6a82a0789d2c0b4d9e73bfff5bd8d82206d033af6ba85afc5775ae"},
+  {"file":"sfx_pop.wav","bytes":38444,"sha256":"813de357881917ea4b26ab21ae6b8d54def08a423ce1e1c1e956404a3e08530d"},
+  {"file":"sfx_shutter.wav","bytes":42284,"sha256":"d2a8955cdc42552ec7dbb5f414b2ef1d13377029e9b75f168541123ae7fedeee"},
+  {"file":"sfx_sub.wav","bytes":61484,"sha256":"8a420ccdee12493876cbab4f384bed4a4422a7a4debd534ad6790198bab71c99"},
+  {"file":"sfx_whoosh.wav","bytes":80684,"sha256":"c269feecb17d3a701c8f08b59fde815cb923e21103cdfa0faa7d4fcd18cec1ad"},
+  {"file":"sun_orb.png","bytes":3151,"sha256":"7124f00e0ffcb2256804930451d021c1de412860e072be93f0fe3e49c59e0c2c"},
+  {"file":"wire_globe.png","bytes":3142,"sha256":"682d0cdbe381b3f5443e18a1db184979fcb0fdacbdf610ef0a1a235ee8c1a137"}
+]
