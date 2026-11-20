@@ -470,8 +470,9 @@ Priority commits: see "Git sequence" at the bottom.
 1. fix(P0): hash customHtmlFile in cache key + video-stream duration validation
 2. fix(P1): preview/build-scene/verify-scene loop, sandbox preflight, asset similarity, feasibility
 3. fix(P2): two-pass probe, geometry, honest verify, jitter-vs-reference, audio sync, labels
-4. fix(P3): prelude order, video frames, masks/blend/parallax, font tools, guides, provenance, contact sheet (+ FIX_REPORT/SPEC/README/SKILL/AGENTS, packed dist)
-5. chore(dist): repack the cloud bundle at the P3 commit (dist/ultra.mjs + map only)
+4. 67f430e fix(P3): prelude order, video frames, masks/blend/parallax, font tools, guides, provenance, contact sheet (+ FIX_REPORT/SPEC/README/SKILL/AGENTS, packed dist)
+5. 64894af chore(dist): repack the cloud bundle at 67f430e (dist/ultra.mjs + map only)
+6. docs: final FIX_REPORT evidence tweak, then a final `chore(dist)` repack (same pattern)
 ```
 
 Hashes are in `git log --oneline` on the branch. Commit 5 exists because the
@@ -485,8 +486,10 @@ dist-only follow-up as `sourceMatchesBundle: true` (same source tree excluding
 - `npm test` → **14 test files passed, 71 tests passed (71)**; Python mock-bpy:
   `Ran 5 tests ... OK`; process exit 0. This includes every pre-existing phase
   1–11 suite and the 46 new regression tests in phases 12–14.
-- `npm run pack:cloud` → tsc + esbuild bundle **866.1 KiB** + external
+- `npm run pack:cloud` → tsc + esbuild bundle **866.2 KiB** + external
   **ultra.mjs.map** (3.5 MiB, not zipped) + `rag-index.json` (41 docs) +
   `dist/ultra-workflow-cloud.zip` **947.6 KiB (0.93 MiB)**, LF-normalized, under
   the 2.5 MiB cap. Two consecutive packs are byte-identical (banner aside).
+- `doctor --json` on the final commit: `bundleCommit: 67f430e…`,
+  `sourceMatchesBundle: true`, `renderTier: full-cdp`.
 - Repo: branch `fix/muse-30-problems`, no push, no PR.
